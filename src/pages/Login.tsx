@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogIn } from 'lucide-react';
+import { Truck } from 'lucide-react';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -28,15 +28,15 @@ export default function Login() {
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-8">
         <div className="flex justify-center mb-6">
           <div className="bg-blue-600 p-4 rounded-full">
-            <LogIn size={32} className="text-white" />
+            <Truck size={32} className="text-white" />
           </div>
         </div>
 
         <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
-          APT System
+          PEPSICO
         </h1>
         <p className="text-center text-gray-600 mb-8">
-          Asistente de Planificación de Transporte
+          Asistente de Gestión de Taller
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">

@@ -25,7 +25,7 @@ export default function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
     <aside className="w-64 bg-slate-800 text-white min-h-screen flex flex-col">
       <div className="p-6 border-b border-slate-700">
-        <h1 className="text-2xl font-bold">APT System</h1>
+        <h1 className="text-2xl font-bold">PepsiCo</h1>
         <p className="text-sm text-slate-400 mt-1">
           {user?.rol === 'admin' && 'Administrador'}
           {user?.rol === 'planner' && 'Planificador'}
