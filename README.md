@@ -1,6 +1,10 @@
 # APT System - Asistente de Planificación de Transporte
 
+<<<<<<< HEAD
 Sistema completo de gestión de flotas vehiculares con control de acceso basado en roles, diseñado para PepsiCo Chile.
+=======
+Sistema completo de gestión de flotas vehiculares con control de acceso basado en roles, diseñado para empresas de transporte y logística.
+>>>>>>> c66b22b1cc6a272c72051143469d2ea86a0003ce
 
 ## 📋 Tabla de Contenidos
 
