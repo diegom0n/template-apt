@@ -2,10 +2,11 @@ export interface Usuario {
   id_usuario: number;
   usuario: string;
   clave: string;
-  rol: 'admin' | 'planner' | 'driver';
   ultima_conexion: string | null;
   estado_usuario: boolean;
   created_at: string;
+  auth_id: string;
+  cargo_id: number;
 }
 
 export interface Cargo {

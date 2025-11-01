@@ -4,7 +4,7 @@ import Card from '../components/Card';
 import Table from '../components/Table';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import CargosList from '../components/CargosList';
+import { OrdenTrabajo, Empleado, Vehiculo } from '../types/database';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -15,32 +15,19 @@ export default function Dashboard() {
     pendingIncidents: 0,
   });
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
-  const [cargos, setCargos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      loadDashboardData();
-      loadCargos();
-    }
+    loadDashboardData();
   }, [user]);
 
   const loadDashboardData = async () => {
     try {
       const [employeesRes, vehiclesRes, ordersRes, incidentsRes] = await Promise.all([
         supabase.from('empleado').select('id_empleado', { count: 'exact', head: true }),
-        supabase
-          .from('vehiculo')
-          .select('id_vehiculo', { count: 'exact', head: true })
-          .eq('estado_vehiculo', 'disponible'),
-        supabase
-          .from('orden_trabajo')
-          .select('id_orden_trabajo', { count: 'exact', head: true })
-          .in('estado_ot', ['pendiente', 'en curso']),
-        supabase
-          .from('incidencia')
-          .select('id_incidencia', { count: 'exact', head: true })
-          .eq('estado_incidencia', 'pendiente'),
+        supabase.from('vehiculo').select('id_vehiculo', { count: 'exact', head: true }).eq('estado_vehiculo', 'disponible'),
+        supabase.from('orden_trabajo').select('id_orden_trabajo', { count: 'exact', head: true }).in('estado_ot', ['pendiente', 'en curso']),
+        supabase.from('incidencia').select('id_incidencia', { count: 'exact', head: true }).eq('estado_incidencia', 'pendiente'),
       ]);
 
       setStats({
@@ -50,7 +37,6 @@ export default function Dashboard() {
         pendingIncidents: incidentsRes.count || 0,
       });
 
-      // Cargar órdenes según rol
       if (user?.rol === 'driver') {
         const { data: empleado } = await supabase
           .from('empleado')
@@ -92,16 +78,6 @@ export default function Dashboard() {
     }
   };
 
-  const loadCargos = async () => {
-    try {
-      const { data, error } = await supabase.from('cargo').select('*');
-      if (error) throw error;
-      setCargos(data || []);
-    } catch (error) {
-      console.error('Error cargando cargos:', error);
-    }
-  };
-
   const columns = [
     {
       header: 'ID',
@@ -110,7 +86,7 @@ export default function Dashboard() {
     {
       header: 'Empleado',
       accessor: 'empleado',
-      render: (value: any) => (value ? `${value.nombre} ${value.apellido_paterno}` : '-'),
+      render: (value: any) => value ? `${value.nombre} ${value.apellido_paterno}` : '-',
     },
     {
       header: 'Vehículo',
@@ -141,21 +117,48 @@ export default function Dashboard() {
     },
   ];
 
-  if (!user) return <div>Debes iniciar sesión</div>;
-  if (loading) return <div>Cargando...</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-gray-600">Cargando...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600 mt-1">Bienvenido, {user?.usuario}</p>
+        <p className="text-gray-600 mt-1">
+          Bienvenido, {user?.usuario}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card title="Empleados Totales" value={stats.totalEmployees} icon={Users} color="bg-blue-600" />
-        <Card title="Vehículos Disponibles" value={stats.availableVehicles} icon={Truck} color="bg-green-600" />
-        <Card title="Órdenes Activas" value={stats.activeOrders} icon={FileText} color="bg-orange-600" />
-        <Card title="Incidencias Pendientes" value={stats.pendingIncidents} icon={AlertCircle} color="bg-red-600" />
+        <Card
+          title="Empleados Totales"
+          value={stats.totalEmployees}
+          icon={Users}
+          color="bg-blue-600"
+        />
+        <Card
+          title="Vehículos Disponibles"
+          value={stats.availableVehicles}
+          icon={Truck}
+          color="bg-green-600"
+        />
+        <Card
+          title="Órdenes Activas"
+          value={stats.activeOrders}
+          icon={FileText}
+          color="bg-orange-600"
+        />
+        <Card
+          title="Incidencias Pendientes"
+          value={stats.pendingIncidents}
+          icon={AlertCircle}
+          color="bg-red-600"
+        />
       </div>
 
       <div className="bg-white rounded-lg shadow-md p-6">
@@ -163,10 +166,6 @@ export default function Dashboard() {
           {user?.rol === 'driver' ? 'Mis Órdenes Recientes' : 'Órdenes de Trabajo Recientes'}
         </h2>
         <Table columns={columns} data={recentOrders} emptyMessage="No hay órdenes de trabajo" />
-      </div>
-
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <CargosList cargos={cargos} />
       </div>
     </div>
   );

@@ -1,53 +1,84 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
-import { Usuario } from '../types/database';
+
+export type UserRole = 'admin' | 'planner' | 'driver';
+
+export interface ExtendedUser {
+  id_usuario: number;
+  usuario: string;
+  auth_id: string;
+  cargo_id: number;
+}
 
 interface AuthContextType {
-  user: Usuario | null;
+  user: ExtendedUser | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Usuario | null>(null);
+  const [user, setUser] = useState<ExtendedUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Inicializa sesión al montar
   useEffect(() => {
-    const storedUser = localStorage.getItem('apt_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) await loadExtendedUser(session.user.id);
+      setLoading(false);
+    };
+
+    init();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        loadExtendedUser(session.user.id);
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
   }, []);
 
-  const login = async (username: string, password: string) => {
+  const loadExtendedUser = async (authId: string) => {
     const { data, error } = await supabase
       .from('usuario')
       .select('*')
-      .eq('usuario', username)
-      .eq('clave', password)
-      .eq('estado_usuario', true)
+      .eq('auth_id', authId)
       .maybeSingle();
 
-    if (error || !data) {
-      throw new Error('Credenciales inválidas');
+    if (error) {
+      console.error('Error cargando usuario extendido:', error);
+      setUser(null);
+      return;
+    }
+    if (!data) {
+      console.warn('No se encontró usuario extendido para auth_id:', authId);
+      setUser(null);
+      return;
     }
 
-    await supabase
-      .from('usuario')
-      .update({ ultima_conexion: new Date().toISOString() })
-      .eq('id_usuario', data.id_usuario);
-
-    setUser(data);
-    localStorage.setItem('apt_user', JSON.stringify(data));
+    setUser({
+      id_usuario: data.id_usuario,
+      usuario: data.usuario,
+      auth_id: authId,
+      cargo_id: data.cargo_id,
+    });
   };
 
-  const logout = () => {
+  const login = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.session) throw new Error('Credenciales inválidas');
+    await loadExtendedUser(data.session.user.id);
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('apt_user');
   };
 
   return (
@@ -59,8 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }

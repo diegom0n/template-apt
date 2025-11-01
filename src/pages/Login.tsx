@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Truck } from 'lucide-react';
 
 export default function Login() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -15,9 +14,9 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await login(username, password);
-    } catch (err) {
-      setError('Usuario o contraseña incorrectos');
+      await login(email, password);
+    } catch (err: any) {
+      setError(err.message || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
     }
@@ -27,30 +26,25 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-8">
         <div className="flex justify-center mb-6">
-          <div className="bg-blue-600 p-4 rounded-full">
-            <Truck size={32} className="text-white" />
-          </div>
+          <img src="/PepsiCo_logo.svg" alt="PepsiCo Logo" width={240} />
         </div>
 
-        <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
-          PEPSICO
-        </h1>
-        <p className="text-center text-gray-600 mb-8">
+        <p className="text-center text-gray-600 mb-8 font-semibold text-lg">
           Asistente de Gestión de Taller
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-              Usuario
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              Correo electrónico
             </label>
             <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Ingrese su usuario"
+              placeholder="ejemplo@empresa.cl"
               required
             />
           </div>
@@ -85,23 +79,7 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-600 mb-3 font-medium">Usuarios de prueba:</p>
-          <div className="space-y-2 text-xs text-gray-500">
-            <div className="flex justify-between">
-              <span>Administrador:</span>
-              <span className="font-mono">admin / admin123</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Planificador:</span>
-              <span className="font-mono">planner / planner123</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Chofer:</span>
-              <span className="font-mono">driver1 / driver123</span>
-            </div>
-          </div>
-        </div>
+       
       </div>
     </div>
   );
