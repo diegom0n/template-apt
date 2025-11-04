@@ -2,7 +2,7 @@ export interface Usuario {
   id_usuario: number;
   usuario: string;
   clave: string;
-  rol: 'admin' | 'planner' | 'driver';
+  rol: 'admin' | 'planner' | 'driver' | 'guard' | 'supervisor' | 'mechanic' | 'repuestos';
   ultima_conexion: string | null;
   estado_usuario: boolean;
   created_at: string;

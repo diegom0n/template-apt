@@ -329,8 +329,18 @@ CREATE POLICY "Authenticated users can view marca_vehiculo"
   TO authenticated
   USING (true);
 
+CREATE POLICY "Authenticated users can modify marca_vehiculo"
+  ON marca_vehiculo FOR ALL
+  TO authenticated
+  USING (true);
+
 CREATE POLICY "Authenticated users can view modelo_vehiculo"
   ON modelo_vehiculo FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Authenticated users can modify modelo_vehiculo"
+  ON modelo_vehiculo FOR ALL
   TO authenticated
   USING (true);
 
@@ -339,8 +349,18 @@ CREATE POLICY "Authenticated users can view tipo_vehiculo"
   TO authenticated
   USING (true);
 
+CREATE POLICY "Authenticated users can modify tipo_vehiculo"
+  ON tipo_vehiculo FOR ALL
+  TO authenticated
+  USING (true);
+
 CREATE POLICY "Authenticated users can view sucursal"
   ON sucursal FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Authenticated users can modify sucursal"
+  ON sucursal FOR ALL
   TO authenticated
   USING (true);
 

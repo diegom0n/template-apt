@@ -235,10 +235,7 @@ export default function WorkOrders() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">
-          {user?.rol === 'driver' ? 'Mis Órdenes de Trabajo' : 'Órdenes de Trabajo'}
-        </h1>
+      <div className="flex justify-end items-center">
         {user?.rol !== 'driver' && (
           <button
             onClick={() => {

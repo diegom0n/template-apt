@@ -4,8 +4,19 @@ import Table from '../components/Table';
 import Modal from '../components/Modal';
 import { supabase } from '../lib/supabase';
 import { Vehiculo } from '../types/database';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Vehicles() {
+  const { user } = useAuth();
+  const hasEnv = Boolean(import.meta.env.VITE_SUPABASE_URL) && Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY);
+  const readLocal = (key: string, fallback: any) => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [modelos, setModelos] = useState<any[]>([]);
   const [tipos, setTipos] = useState<any[]>([]);
@@ -46,12 +57,34 @@ export default function Vehicles() {
         supabase.from('sucursal').select('*'),
       ]);
 
-      setVehicles(vehiclesRes.data || []);
-      setModelos(modelosRes.data || []);
-      setTipos(tiposRes.data || []);
-      setSucursales(sucursalesRes.data || []);
+      // Solo usar datos de Supabase si tienen contenido
+      const hasVehicles = vehiclesRes.data && vehiclesRes.data.length > 0;
+      const hasModelos = modelosRes.data && modelosRes.data.length > 0;
+      const hasTipos = tiposRes.data && tiposRes.data.length > 0;
+      const hasSucursales = sucursalesRes.data && sucursalesRes.data.length > 0;
+
+      if (hasVehicles || hasModelos || hasTipos || hasSucursales) {
+        if (hasVehicles) setVehicles(vehiclesRes.data);
+        if (hasModelos) setModelos(modelosRes.data);
+        if (hasTipos) setTipos(tiposRes.data);
+        if (hasSucursales) setSucursales(sucursalesRes.data);
+        setLoading(false);
+        return;
+      }
+
+      // Si llega aquí, la BD está vacía o inaccesible
+      throw new Error('Empty or inaccessible database');
     } catch (error) {
-      console.error('Error loading vehicles:', error);
+      // Cargar desde localStorage
+      const vehiclesLS = readLocal('apt_vehiculos', []);
+      const modelosLS = readLocal('apt_modelos', []);
+      const tiposLS = readLocal('apt_tipos', []);
+      const sucursalesLS = readLocal('apt_sucursales', []);
+      
+      setVehicles(vehiclesLS);
+      setModelos(modelosLS);
+      setTipos(tiposLS);
+      setSucursales(sucursalesLS);
     } finally {
       setLoading(false);
     }
@@ -168,27 +201,23 @@ export default function Vehicles() {
       accessor: 'kilometraje_vehiculo',
       render: (value: number) => value ? `${value.toLocaleString()} km` : '-',
     },
-    {
-      header: 'Acciones',
-      accessor: 'id_vehiculo',
-      render: (_: any, row: Vehiculo) => (
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleEdit(row)}
-            className="text-blue-600 hover:text-blue-800"
-          >
-            <Edit size={18} />
-          </button>
-          <button
-            onClick={() => handleDelete(row.id_vehiculo)}
-            className="text-red-600 hover:text-red-800"
-          >
-            <Trash2 size={18} />
-          </button>
-        </div>
-      ),
-    },
-  ];
+    user?.rol === 'guard'
+      ? {
+          header: 'Acciones',
+          accessor: 'id_vehiculo',
+          render: (_: any, row: Vehiculo) => (
+            <div className="flex gap-2">
+              <button onClick={() => handleEdit(row)} className="text-blue-600 hover:text-blue-800">
+                <Edit size={18} />
+              </button>
+              <button onClick={() => handleDelete(row.id_vehiculo)} className="text-red-600 hover:text-red-800">
+                <Trash2 size={18} />
+              </button>
+            </div>
+          ),
+        }
+      : null,
+  ].filter(Boolean) as any;
 
   if (loading) {
     return <div className="text-center py-8">Cargando...</div>;
@@ -196,24 +225,26 @@ export default function Vehicles() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Vehículos</h1>
-        <button
-          onClick={() => {
-            resetForm();
-            setModalOpen(true);
-          }}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus size={20} />
-          Agregar Vehículo
-        </button>
+      <div className="flex justify-end items-center">
+        {user?.rol === 'guard' && (
+          <button
+            onClick={() => {
+              resetForm();
+              setModalOpen(true);
+            }}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={20} />
+            Agregar Vehículo
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <Table columns={columns} data={vehicles} />
       </div>
 
+      {user?.rol === 'guard' && (
       <Modal
         isOpen={modalOpen}
         onClose={() => {
@@ -381,6 +412,7 @@ export default function Vehicles() {
           </div>
         </form>
       </Modal>
+      )}
     </div>
   );
 }

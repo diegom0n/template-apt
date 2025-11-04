@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Truck } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -86,6 +87,14 @@ export default function Login() {
         </form>
 
         <div className="mt-8 pt-6 border-t border-gray-200">
+          <div className="mb-4 text-center">
+            <Link to="/" className="text-blue-600 hover:text-blue-700 text-sm font-medium mr-4">
+              ← Volver al inicio
+            </Link>
+            <Link to="/register" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+              ¿Eres nuevo? Regístrate aquí
+            </Link>
+          </div>
           <p className="text-sm text-gray-600 mb-3 font-medium">Usuarios de prueba:</p>
           <div className="space-y-2 text-xs text-gray-500">
             <div className="flex justify-between">
