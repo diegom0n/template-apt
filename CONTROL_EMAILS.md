@@ -69,3 +69,4 @@ Luego reinicia los servidores.
 **Nota**: Cuando habilites los correos, se enviarán automáticamente a `dwerdecker@gmail.com` cada vez que se registre un ingreso de vehículo autorizado.
 
 
+

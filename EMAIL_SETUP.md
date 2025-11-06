@@ -258,3 +258,4 @@ fetch('/api/send-email', {
 - [Ejemplos de Templates HTML](https://resend.com/docs/send-with-nodejs)
 
 
+

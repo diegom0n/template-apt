@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Home, Users, Truck, FileText, Key, ClipboardList, Shield, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Home, Users, Truck, FileText, Key, ClipboardList, Shield, ChevronDown, ChevronRight, X, Calendar, CheckSquare, Wrench, QrCode } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -16,10 +16,13 @@ export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClos
   const [userDisplayName, setUserDisplayName] = useState('');
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'planner', 'supervisor', 'mechanic', 'guard', 'driver'] },
+    { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'planner', 'supervisor', 'mechanic', 'guard', 'driver', 'jefe_taller'] },
     { id: 'employees', label: 'Empleados', icon: Users, roles: ['admin'] },
     { id: 'vehicles', label: 'Vehículos', icon: Truck, roles: ['admin', 'planner', 'supervisor'] },
-    { id: 'work-orders', label: 'Órdenes de Trabajo', icon: FileText, roles: ['admin', 'planner', 'supervisor', 'mechanic', 'driver'] },
+    { id: 'work-orders', label: 'Órdenes de Trabajo', icon: FileText, roles: ['admin', 'planner', 'supervisor', 'mechanic', 'driver', 'jefe_taller'] },
+    { id: 'schedule-diagnostic', label: 'Agendar Diagnóstico', icon: Calendar, roles: ['driver'] },
+    { id: 'coordinator-dashboard', label: 'Bandeja de Solicitudes', icon: CheckSquare, roles: ['planner'] },
+    { id: 'workshop-chief-dashboard', label: 'Jefe de Taller', icon: Wrench, roles: ['jefe_taller'] },
     { id: 'keys', label: 'Llaves', icon: Key, roles: ['admin', 'planner'] },
     { id: 'incidents', label: 'Incidencias', icon: ClipboardList, roles: ['admin', 'planner', 'supervisor'] },
     { id: 'gate', label: 'Portería', icon: Shield, roles: ['guard'] },
@@ -78,7 +81,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClos
       )}
       
       <aside className={`
-        fixed md:static inset-y-0 left-0 w-64 bg-slate-800 text-white min-h-screen flex flex-col z-50
+        fixed inset-y-0 left-0 w-64 bg-slate-800 text-white h-screen flex flex-col z-50
         transform transition-transform duration-300 ease-in-out
         ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
@@ -100,6 +103,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClos
             {user?.rol === 'guard' && 'Guardia'}
             {user?.rol === 'repuestos' && 'Asistente de Repuestos'}
             {user?.rol === 'driver' && 'Chofer'}
+            {user?.rol === 'jefe_taller' && 'Jefe de Taller'}
           </p>
         </div>
 
@@ -110,7 +114,7 @@ export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClos
             
             // Si es Portería, mostrar con submenú
             if (item.id === 'gate') {
-              const isActive = currentPage === item.id || currentPage === 'gate-dashboard' || currentPage === 'gate-registrar' || currentPage === 'gate-ingreso';
+              const isActive = currentPage === item.id || currentPage === 'gate-dashboard' || currentPage === 'gate-registrar' || currentPage === 'gate-ingreso' || currentPage === 'gate-qr-scanner';
               return (
                 <li key={item.id}>
                   <div
@@ -141,6 +145,18 @@ export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClos
                             className="w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm text-slate-400 hover:bg-slate-700"
                           >
                             Dashboard
+                          </button>
+                        </li>
+                        <li>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigate('gate-qr-scanner');
+                            }}
+                            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm text-slate-400 hover:bg-slate-700"
+                          >
+                            <QrCode size={16} />
+                            Escáner QR
                           </button>
                         </li>
                         <li>

@@ -16,6 +16,11 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import Gate from './pages/Gate';
 import GateDashboard from './pages/GateDashboard';
 import EmployeeRegister from './pages/EmployeeRegister';
+import ScheduleDiagnostic from './pages/ScheduleDiagnostic';
+import CoordinatorDashboard from './pages/CoordinatorDashboard';
+import WorkshopChiefDashboard from './pages/WorkshopChiefDashboard';
+import VehicleQRView from './pages/VehicleQRView';
+import GateQRScanner from './pages/GateQRScanner';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -37,6 +42,7 @@ function AppContent() {
         <Route path="/" element={<Home onGoToLogin={() => {}} />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<EmployeeRegister />} />
+        <Route path="/vehiculo/:patente" element={<VehicleQRView />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     );
@@ -54,29 +60,39 @@ function AppContent() {
     if (user?.rol === 'guard') {
       return '/gate-dashboard';
     }
+    if (user?.rol === 'jefe_taller') {
+      return '/workshop-chief-dashboard';
+    }
     return '/dashboard';
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
+    <div className="flex h-screen bg-gray-100 overflow-hidden">
       <Sidebar currentPage={currentPage} onNavigate={handleNavigate} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex-1 flex flex-col w-full md:w-auto">
+      <div className="flex-1 flex flex-col ml-0 md:ml-64 w-full md:w-auto overflow-hidden">
         <Header onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
-        <main className="flex-1 p-4 md:p-8 overflow-auto">
-          <Routes>
-            <Route path="/" element={<Navigate to={getInitialRoute()} replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/employees" element={<Employees />} />
-            <Route path="/vehicles" element={<Vehicles />} />
-            <Route path="/gate-dashboard" element={<GateDashboard />} />
-            <Route path="/gate" element={<Gate />} />
-            <Route path="/work-orders" element={<WorkOrders />} />
-            <Route path="/keys" element={<Keys />} />
+        <div className="flex-1 overflow-y-auto bg-gray-100">
+          <main className="p-4 md:p-8 min-h-full">
+            <Routes>
+              <Route path="/" element={<Navigate to={getInitialRoute()} replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/employees" element={<Employees />} />
+              <Route path="/vehicles" element={<Vehicles />} />
+              <Route path="/gate-dashboard" element={<GateDashboard />} />
+              <Route path="/gate" element={<Gate />} />
+              <Route path="/gate-qr-scanner" element={<GateQRScanner />} />
+              <Route path="/work-orders" element={<WorkOrders />} />
+              <Route path="/keys" element={<Keys />} />
             <Route path="/incidents" element={<Incidents />} />
+            <Route path="/schedule-diagnostic" element={<ScheduleDiagnostic />} />
+            <Route path="/coordinator-dashboard" element={<CoordinatorDashboard />} />
+            <Route path="/workshop-chief-dashboard" element={<WorkshopChiefDashboard />} />
+            <Route path="/vehiculo/:patente" element={<VehicleQRView />} />
             <Route path="*" element={<Navigate to={getInitialRoute()} replace />} />
-          </Routes>
-        </main>
-        <Footer />
+            </Routes>
+          </main>
+          <Footer />
+        </div>
       </div>
     </div>
   );

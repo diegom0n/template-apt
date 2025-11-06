@@ -77,3 +77,4 @@ npm run send:test
 Si el correo de prueba funciona, la configuración está bien. Solo necesitas que el servidor Express esté corriendo para que funcione desde la web.
 
 
+

@@ -2,7 +2,7 @@ export interface Usuario {
   id_usuario: number;
   usuario: string;
   clave: string;
-  rol: 'admin' | 'planner' | 'driver' | 'guard' | 'supervisor' | 'mechanic' | 'repuestos';
+  rol: 'admin' | 'planner' | 'driver' | 'guard' | 'supervisor' | 'mechanic' | 'repuestos' | 'jefe_taller';
   ultima_conexion: string | null;
   estado_usuario: boolean;
   created_at: string;
@@ -81,10 +81,16 @@ export interface OrdenTrabajo {
   fecha_inicio_ot: string;
   fecha_cierre_ot: string | null;
   descripcion_ot: string | null;
-  estado_ot: 'pendiente' | 'en curso' | 'finalizada';
+  estado_ot: 'pendiente' | 'en curso' | 'finalizada' | 'en_diagnostico_programado';
   empleado_id: number;
   vehiculo_id: number;
   created_at: string;
+  solicitud_diagnostico_id?: number | null; // Relación con solicitud de diagnóstico
+  hora_confirmada?: string | null; // Hora confirmada para diagnóstico
+  prioridad_ot?: 'normal' | 'alta' | 'critica' | null; // Prioridad de la OT
+  checklist_id?: number | null; // ID del checklist de diagnóstico asignado
+  mecanico_apoyo_ids?: number[] | null; // IDs de mecánicos de apoyo
+  confirmado_ingreso?: boolean | null; // Si el vehículo ya ingresó al taller
 }
 
 export interface Acceso {
@@ -140,4 +146,25 @@ export interface Incidencia {
   observaciones_incidencia: string | null;
   orden_trabajo_id: number;
   created_at: string;
+}
+
+export interface SolicitudDiagnostico {
+  id_solicitud_diagnostico: number;
+  vehiculo_id: number | null;
+  empleado_id: number;
+  tipo_problema: string;
+  prioridad: 'normal' | 'urgente';
+  fecha_solicitada: string;
+  bloque_horario: string;
+  comentarios: string | null;
+  fotos: string[] | null; // URLs o base64 de las imágenes
+  estado_solicitud: 'pendiente_confirmacion' | 'confirmada' | 'rechazada' | 'completada';
+  created_at: string;
+  patente_vehiculo?: string; // Opcional: para cuando no existe vehiculo_id
+  tipo_trabajo?: 'mantencion' | 'correctivo' | 'emergencia' | null; // Tipo de trabajo preliminar
+  fecha_confirmada?: string | null; // Fecha confirmada por coordinador
+  bloque_horario_confirmado?: string | null; // Bloque horario confirmado
+  orden_trabajo_id?: number | null; // ID de la OT creada al confirmar
+  box_id?: number | null; // Box asignado
+  mecanico_id?: number | null; // Mecánico asignado
 }

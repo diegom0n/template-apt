@@ -75,7 +75,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const getRoleLabel = () => {
     switch (user?.rol) {
       case 'admin':
-        return 'Jefe de Taller';
+        return 'Administrador';
       case 'planner':
         return 'Coordinador';
       case 'supervisor':
@@ -88,6 +88,8 @@ export default function Header({ onMenuClick }: HeaderProps) {
         return 'Asistente de Repuestos';
       case 'driver':
         return 'Chofer';
+      case 'jefe_taller':
+        return 'Jefe de Taller';
       default:
         return 'Usuario';
     }

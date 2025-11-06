@@ -65,3 +65,4 @@ Puedes agregar notificaciones por correo para:
 3. **Múltiples destinatarios**: Resend permite enviar a múltiples emails separados por comas.
 
 
+

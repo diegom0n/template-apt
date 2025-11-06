@@ -28,8 +28,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const demoUsers: Record<string, Omit<Usuario, 'id_usuario' | 'created_at' | 'ultima_conexion'>> = {
       admin: { usuario: 'admin', clave: 'admin123', rol: 'admin', estado_usuario: true },
       planner: { usuario: 'planner', clave: 'planner123', rol: 'planner', estado_usuario: true },
+      coordinador: { usuario: 'coordinador', clave: 'coordinador123', rol: 'planner', estado_usuario: true },
       driver1: { usuario: 'driver1', clave: 'driver123', rol: 'driver', estado_usuario: true },
+      chofer: { usuario: 'chofer', clave: 'chofer123', rol: 'driver', estado_usuario: true },
       guardia: { usuario: 'guardia', clave: 'guardia123', rol: 'guard', estado_usuario: true },
+      jefedetaller: { usuario: 'jefedetaller', clave: 'jefedetaller123', rol: 'jefe_taller', estado_usuario: true },
     };
 
     const hasEnv = Boolean(import.meta.env.VITE_SUPABASE_URL) && Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY);

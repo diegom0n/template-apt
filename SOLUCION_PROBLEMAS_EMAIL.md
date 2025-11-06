@@ -138,3 +138,4 @@ console.log('Admin email:', import.meta.env.VITE_ADMIN_EMAIL);
 - Revisa la carpeta de spam si no llega inmediatamente
 
 
+
