@@ -27,7 +27,7 @@ export default function Home(_props: HomeProps) {
             <img
               src={logoSrc}
               alt="PepsiCo"
-              className="max-h-24 w-auto object-contain"
+              className="max-h-26 w-auto object-contain"
               onError={handleLogoError}
             />
           </div>
@@ -86,7 +86,7 @@ export default function Home(_props: HomeProps) {
               </Link>
             </div>
 
-            <div className="mt-10 text-[11px] text-slate-200 text-right">© 2024 PEPSICO, Inc.</div>
+            <div className="mt-10 text-[11px] text-slate-200 text-right">© 2025 PEPSICO, Inc.</div>
           </div>
         </div>
       </div>
