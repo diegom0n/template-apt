@@ -7,7 +7,11 @@ import { sendEmail } from '../lib/email';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-export default function Gate() {
+interface GateProps {
+  activeSection?: 'ingreso' | 'salida' | 'sin-cita' | 'historial' | 'consulta';
+}
+
+export default function Gate({ activeSection = 'ingreso' }: GateProps) {
   const { addNotification } = useNotifications();
   const navigate = useNavigate();
   const hasEnv = Boolean(import.meta.env.VITE_SUPABASE_URL) && Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY);
@@ -27,7 +31,6 @@ export default function Gate() {
   const [sucursales, setSucursales] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'registrar' | 'ingreso' | 'salida'>('ingreso');
   
   // Estados para registro de ingreso
   const [searchPatente, setSearchPatente] = useState('');
@@ -67,6 +70,7 @@ export default function Gate() {
     modelo_vehiculo_id: '',
     tipo_vehiculo_id: '',
     sucursal_id: '',
+    tipo_caso: 'emergencia',
   });
 
   // Modales para agregar modelo y sucursal
@@ -181,37 +185,7 @@ export default function Gate() {
     console.log('✅ Registro guardado en historial:', registroHistorial);
   };
 
-  useEffect(() => {
-    // Escuchar eventos del sidebar para cambiar de pestaña
-    const handleChangeTab = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      if (customEvent.detail === 'registrar' || customEvent.detail === 'ingreso' || customEvent.detail === 'salida') {
-        setActiveTab(customEvent.detail);
-        localStorage.setItem('gate_active_tab', customEvent.detail);
-      }
-    };
-
-    window.addEventListener('changeGateTab', handleChangeTab);
-    return () => {
-      window.removeEventListener('changeGateTab', handleChangeTab);
-    };
-  }, []);
-  
-  useEffect(() => {
-    // Por defecto, siempre mostrar la pestaña de registro de ingreso al cargar la página
-    // Solo usar la pestaña guardada si el usuario la cambió explícitamente
-    const savedTab = localStorage.getItem('gate_active_tab');
-    // Si hay una pestaña guardada válida, usarla; si no, usar 'ingreso' por defecto
-    if (savedTab === 'registrar' || savedTab === 'ingreso' || savedTab === 'salida') {
-      setActiveTab(savedTab as 'registrar' | 'ingreso' | 'salida');
-    } else {
-      // Por defecto, empezar en 'ingreso' que es la función más común para guardias
-      setActiveTab('ingreso');
-      localStorage.setItem('gate_active_tab', 'ingreso');
-    }
-  }, []);
-
-  // Limpiar el escáner QR al desmontar el componente o cambiar de pestaña
+  // Limpiar el escáner QR al desmontar el componente
   useEffect(() => {
     return () => {
       if (qrScannerRef.current) {
@@ -221,16 +195,24 @@ export default function Gate() {
   }, []);
 
   useEffect(() => {
-    // Detener el escáner cuando se cambia de pestaña
-    if (activeTab !== 'ingreso' && qrScannerActive) {
+    // Detener el escáner cuando se cambia de sección
+    if (activeSection !== 'ingreso' && qrScannerActive) {
       stopQRScanner();
     }
-  }, [activeTab]);
+  }, [activeSection]);
 
   // Cargar cámaras disponibles al montar el componente
   useEffect(() => {
     loadAvailableCamerasQR();
   }, []);
+
+  // Cargar datos según la sección activa
+  useEffect(() => {
+    if (activeSection === 'historial') {
+      loadHistorialAutorizados();
+      loadHistorialSalidas();
+    }
+  }, [activeSection]);
 
   const loadData = async () => {
     try {
@@ -1789,9 +1771,30 @@ export default function Gate() {
       )}
 
       {/* Contenido de la pestaña Registrar Vehículo */}
-      {activeTab === 'registrar' && (
+      {/* Contenido de Ingresos sin Cita */}
+      {activeSection === 'sin-cita' && (
         <div className="bg-white rounded-lg shadow p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Ingresos sin Cita</h1>
+          <p className="text-gray-600 mb-6">Registrar ingresos de emergencia o sin OT previa, marcando tipo de caso.</p>
+          
           <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Tipo de Caso <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={formData.tipo_caso}
+              onChange={(e) => setFormData({ ...formData, tipo_caso: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              required
+            >
+              <option value="emergencia">Emergencia</option>
+              <option value="sin_ot">Sin OT Previa</option>
+              <option value="urgente">Urgente</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Patente</label>
@@ -1898,10 +1901,14 @@ export default function Gate() {
       )}
 
       {/* Contenido de la pestaña Registro de Ingreso */}
-      {activeTab === 'ingreso' && (
+      {/* Contenido de Ingreso de Vehículos */}
+      {activeSection === 'ingreso' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4 text-gray-900">Buscar Vehículo por Patente</h2>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Ingreso de Vehículos</h1>
+            <p className="text-gray-600 mb-6">Escáner QR / búsqueda por patente, registro de fecha/hora, chofer, motivo de ingreso.</p>
+            
+            <h2 className="text-lg font-semibold mb-4 text-gray-900">Buscar Vehículo por Patente</h2>
             <div className="space-y-4">
             <div className="flex gap-3">
               <input
@@ -2225,10 +2232,14 @@ export default function Gate() {
       )}
 
       {/* Contenido de la pestaña Registro de Salida */}
-      {activeTab === 'salida' && (
+      {/* Contenido de Salida de Vehículos */}
+      {activeSection === 'salida' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4 text-gray-900">Buscar Vehículo por Patente</h2>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Salida de Vehículos</h1>
+            <p className="text-gray-600 mb-6">Escáner QR / búsqueda por patente, cierre del movimiento y motivo de salida.</p>
+            
+            <h2 className="text-lg font-semibold mb-4 text-gray-900">Buscar Vehículo por Patente</h2>
             <div className="space-y-4">
             <div className="flex gap-3">
               <input
@@ -2245,6 +2256,18 @@ export default function Gate() {
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
                 {searchingSalida ? 'Buscando...' : 'Buscar'}
+              </button>
+            </div>
+
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-800 mb-2">
+                💡 <strong>¿Prefieres usar el escáner en pantalla completa?</strong>
+              </p>
+              <button
+                onClick={() => navigate('/gate-qr-scanner?mode=salida')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+              >
+                Abrir Escáner QR (Pantalla Completa)
               </button>
             </div>
 
@@ -2619,6 +2642,208 @@ export default function Gate() {
           </div>
         )}
       </Modal>
+
+      {/* Contenido de Historial del Día */}
+      {activeSection === 'historial' && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Historial del Día</h1>
+          <p className="text-gray-600 mb-6">Lista de vehículos que han entrado/salido en el turno.</p>
+          
+          <div className="space-y-6">
+            {/* Historial de Ingresos */}
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Ingresos del Día</h2>
+              {historialAutorizados.length === 0 ? (
+                <p className="text-center py-4 text-gray-500">No hay ingresos registrados hoy.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patente</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hora</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Chofer</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {historialAutorizados.map((registro: any, index: number) => (
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{registro.patente}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{registro.hora_busqueda || registro.hora}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{registro.chofer || 'N/A'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{registro.motivo_ingreso || 'Diagnóstico'}</td>
+                          <td className="px-4 py-3">
+                            <span className="px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-800">
+                              Autorizado
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Historial de Salidas */}
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Salidas del Día</h2>
+              {historialSalidas.length === 0 ? (
+                <p className="text-center py-4 text-gray-500">No hay salidas registradas hoy.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patente</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hora Salida</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {historialSalidas.map((registro: any, index: number) => (
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{registro.patente}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{registro.hora_salida}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{registro.motivo_salida || 'N/A'}</td>
+                          <td className="px-4 py-3">
+                            <span className="px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800">
+                              Completado
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contenido de Consulta Rápida de Vehículo */}
+      {activeSection === 'consulta' && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Consulta Rápida de Vehículo</h1>
+          <p className="text-gray-600 mb-6">Ver si el vehículo tiene OT abierta, si está en taller o ya salió.</p>
+          
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Buscar por Patente
+            </label>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={searchPatente}
+                onChange={(e) => setSearchPatente(e.target.value)}
+                placeholder="Ingrese la patente del vehículo"
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-lg"
+                onKeyPress={(e) => e.key === 'Enter' && searchVehicle()}
+              />
+              <button
+                onClick={searchVehicle}
+                disabled={searching}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {searching ? 'Buscando...' : 'Buscar'}
+              </button>
+            </div>
+          </div>
+
+          {foundVehicle && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Información del Vehículo</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <p className="text-sm text-gray-600">Patente</p>
+                  <p className="text-lg font-semibold text-gray-900">{foundVehicle.patente_vehiculo}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Estado</p>
+                  <span className={`inline-block px-3 py-1 text-sm font-semibold rounded ${
+                    foundVehicle.estado_vehiculo === 'en_taller' ? 'bg-yellow-100 text-yellow-800' :
+                    foundVehicle.estado_vehiculo === 'disponible' ? 'bg-green-100 text-green-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {foundVehicle.estado_vehiculo === 'en_taller' ? 'En Taller' :
+                     foundVehicle.estado_vehiculo === 'disponible' ? 'Disponible' :
+                     foundVehicle.estado_vehiculo}
+                  </span>
+                </div>
+              </div>
+
+              {/* Verificar si tiene OT abierta */}
+              {(() => {
+                const ordenes = readLocal('apt_ordenes_trabajo', []);
+                const otAbierta = ordenes.find((o: any) => 
+                  o.vehiculo_id === foundVehicle.id_vehiculo && 
+                  o.estado_ot !== 'finalizada'
+                );
+                
+                if (otAbierta) {
+                  return (
+                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm font-semibold text-blue-900 mb-2">✓ Tiene OT Abierta</p>
+                      <div className="space-y-1 text-sm text-gray-700">
+                        <p><strong>OT #:</strong> {otAbierta.id_orden_trabajo}</p>
+                        <p><strong>Estado:</strong> {otAbierta.estado_ot}</p>
+                        <p><strong>Fecha inicio:</strong> {new Date(otAbierta.fecha_inicio_ot).toLocaleDateString('es-ES')}</p>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                // Verificar si está en historial de ingreso
+                const historial = readLocal('apt_historial_autorizados', []);
+                const ingresoReciente = historial.find((h: any) => 
+                  h.patente?.toUpperCase() === foundVehicle.patente_vehiculo?.toUpperCase()
+                );
+                
+                if (ingresoReciente) {
+                  return (
+                    <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm font-semibold text-green-900 mb-2">✓ Vehículo en Taller</p>
+                      <div className="space-y-1 text-sm text-gray-700">
+                        <p><strong>Hora de ingreso:</strong> {ingresoReciente.hora_busqueda}</p>
+                        <p><strong>Motivo:</strong> {ingresoReciente.motivo_ingreso || 'Diagnóstico'}</p>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                // Verificar si ya salió
+                const historialSalidas = readLocal('apt_historial_salidas', []);
+                const salidaReciente = historialSalidas.find((h: any) => 
+                  h.patente?.toUpperCase() === foundVehicle.patente_vehiculo?.toUpperCase()
+                );
+                
+                if (salidaReciente) {
+                  return (
+                    <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                      <p className="text-sm font-semibold text-gray-900 mb-2">Vehículo ya Salió</p>
+                      <div className="space-y-1 text-sm text-gray-700">
+                        <p><strong>Hora de salida:</strong> {salidaReciente.hora_salida}</p>
+                        <p><strong>Fecha:</strong> {new Date(salidaReciente.fecha_salida).toLocaleDateString('es-ES')}</p>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <p className="text-sm text-gray-700">No hay registros de movimiento para este vehículo hoy.</p>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

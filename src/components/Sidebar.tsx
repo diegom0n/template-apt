@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Home, Users, Truck, FileText, Key, ClipboardList, Shield, ChevronDown, ChevronRight, X, Calendar, CheckSquare, Wrench, QrCode } from 'lucide-react';
+import { Home, Users, Truck, FileText, Key, ClipboardList, Shield, ChevronDown, ChevronRight, X, Calendar, CheckSquare, Wrench, QrCode, AlertCircle, Settings, BarChart3, Activity, CheckCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -12,20 +12,76 @@ interface SidebarProps {
 
 export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClose }: SidebarProps) {
   const { user } = useAuth();
+  const [showAdminSubmenu, setShowAdminSubmenu] = useState(true);
   const [showGateSubmenu, setShowGateSubmenu] = useState(true);
+  const [showCoordinatorSubmenu, setShowCoordinatorSubmenu] = useState(true);
+  const [showSupervisorSubmenu, setShowSupervisorSubmenu] = useState(true);
+  const [showMechanicSubmenu, setShowMechanicSubmenu] = useState(true);
+  const [showWorkshopChiefSubmenu, setShowWorkshopChiefSubmenu] = useState(true);
   const [userDisplayName, setUserDisplayName] = useState('');
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'planner', 'supervisor', 'mechanic', 'guard', 'driver', 'jefe_taller'] },
-    { id: 'employees', label: 'Empleados', icon: Users, roles: ['admin'] },
-    { id: 'vehicles', label: 'Vehículos', icon: Truck, roles: ['admin', 'planner', 'supervisor'] },
-    { id: 'work-orders', label: 'Órdenes de Trabajo', icon: FileText, roles: ['admin', 'planner', 'supervisor', 'mechanic', 'driver', 'jefe_taller'] },
+    { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['guard', 'driver'] },
+    { id: 'admin', label: 'Administrador', icon: Settings, roles: ['admin'], hasSubmenu: true },
     { id: 'schedule-diagnostic', label: 'Agendar Diagnóstico', icon: Calendar, roles: ['driver'] },
-    { id: 'coordinator-dashboard', label: 'Bandeja de Solicitudes', icon: CheckSquare, roles: ['planner'] },
-    { id: 'workshop-chief-dashboard', label: 'Jefe de Taller', icon: Wrench, roles: ['jefe_taller'] },
-    { id: 'keys', label: 'Llaves', icon: Key, roles: ['admin', 'planner'] },
-    { id: 'incidents', label: 'Incidencias', icon: ClipboardList, roles: ['admin', 'planner', 'supervisor'] },
+    { id: 'coordinator', label: 'Coordinador', icon: CheckSquare, roles: ['planner'], hasSubmenu: true },
+    { id: 'supervisor', label: 'Supervisor', icon: Activity, roles: ['supervisor'], hasSubmenu: true },
+    { id: 'mechanic', label: 'Mecánico', icon: Settings, roles: ['mechanic'], hasSubmenu: true },
+    { id: 'workshop-chief', label: 'Jefe de Taller', icon: Wrench, roles: ['jefe_taller'], hasSubmenu: true },
     { id: 'gate', label: 'Portería', icon: Shield, roles: ['guard'] },
+  ];
+
+  const adminSubmenuItems = [
+    { id: 'admin-usuarios', label: 'Usuarios', icon: Users },
+    { id: 'admin-vehiculos', label: 'Gestión de Vehículos', icon: Truck },
+    { id: 'admin-roles', label: 'Roles y Permisos', icon: Shield },
+    { id: 'admin-catalogos', label: 'Catálogos del Taller', icon: ClipboardList },
+    { id: 'admin-agenda', label: 'Configuración de Agenda', icon: Calendar },
+    { id: 'admin-flota', label: 'Parámetros de Flota', icon: Truck },
+    { id: 'admin-auditoria', label: 'Auditoría y Seguridad', icon: Key },
+  ];
+
+  const gateSubmenuItems = [
+    { id: 'gate-ingreso', label: 'Ingreso de Vehículos', icon: Truck },
+    { id: 'gate-salida', label: 'Salida de Vehículos', icon: Truck },
+    { id: 'gate-sin-cita', label: 'Ingresos sin Cita', icon: AlertCircle },
+    { id: 'gate-historial', label: 'Historial del Día', icon: Calendar },
+    { id: 'gate-consulta', label: 'Consulta Rápida', icon: FileText },
+  ];
+
+  const coordinatorSubmenuItems = [
+    { id: 'coordinator-agenda', label: 'Agenda del Taller', icon: Calendar },
+    { id: 'coordinator-solicitudes', label: 'Solicitudes', icon: ClipboardList },
+    { id: 'coordinator-emergencias', label: 'Emergencias en Ruta', icon: AlertCircle },
+    { id: 'coordinator-ordenes', label: 'Órdenes de Trabajo', icon: Settings },
+    { id: 'coordinator-vehiculos', label: 'Estado de Vehículos', icon: Truck },
+    { id: 'coordinator-reportes', label: 'Reportes Operativos', icon: BarChart3 },
+  ];
+
+  const workshopChiefSubmenuItems = [
+    { id: 'workshop-agenda', label: 'Agenda de Diagnósticos', icon: Calendar },
+    { id: 'workshop-checklists', label: 'Checklists de Diagnóstico', icon: ClipboardList },
+    { id: 'workshop-plan', label: 'Plan de Reparación', icon: FileText },
+    { id: 'workshop-asignacion', label: 'Asignación de Mecánicos', icon: Users },
+    { id: 'workshop-reparacion', label: 'OT en Reparación', icon: Settings },
+    { id: 'workshop-cierre', label: 'Cierre Técnico de OT', icon: CheckCircle },
+    { id: 'workshop-carga', label: 'Carga del Taller', icon: Activity },
+  ];
+
+  const supervisorSubmenuItems = [
+    { id: 'supervisor-tablero', label: 'Tablero de OT', icon: FileText },
+    { id: 'supervisor-diagnosticos', label: 'Aprobación de Diagnósticos', icon: CheckCircle },
+    { id: 'supervisor-asignaciones', label: 'Asignaciones de Mecánicos', icon: Users },
+    { id: 'supervisor-emergencias', label: 'Emergencias en Ruta', icon: AlertCircle },
+    { id: 'supervisor-calidad', label: 'Calidad Técnica', icon: CheckSquare },
+    { id: 'supervisor-indicadores', label: 'Indicadores y Productividad', icon: BarChart3 },
+  ];
+
+  const mechanicSubmenuItems = [
+    { id: 'mechanic-assigned', label: 'Mis OT Asignadas', icon: FileText },
+    { id: 'mechanic-detail', label: 'Detalle de OT', icon: ClipboardList },
+    { id: 'mechanic-progress', label: 'Registro de Avances', icon: Settings },
+    { id: 'mechanic-history', label: 'Historial de Trabajos', icon: Calendar },
   ];
 
   const visibleItems = menuItems.filter(item =>
@@ -112,9 +168,269 @@ export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClos
           {visibleItems.map((item) => {
             const Icon = item.icon;
             
+            // Si es Administrador, mostrar con submenú
+            if (item.id === 'admin') {
+              const isActive = currentPage.startsWith('admin-');
+              return (
+                <li key={item.id}>
+                  <div
+                    className={`rounded-lg ${
+                      isActive
+                        ? 'bg-blue-600'
+                        : ''
+                    }`}
+                  >
+                    <button
+                      onClick={() => setShowAdminSubmenu(!showAdminSubmenu)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={20} />
+                        <span>{item.label}</span>
+                      </div>
+                      {showAdminSubmenu ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
+                    {showAdminSubmenu && (
+                      <ul className="mt-1 ml-8 space-y-1 pb-2">
+                        {adminSubmenuItems.map((subItem) => {
+                          const SubIcon = subItem.icon;
+                          return (
+                            <li key={subItem.id}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigate(subItem.id);
+                                }}
+                                className={`w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                  currentPage === subItem.id
+                                    ? 'bg-blue-700 text-white'
+                                    : 'text-slate-400 hover:bg-slate-700'
+                                }`}
+                              >
+                                <SubIcon size={16} />
+                                {subItem.label}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </li>
+              );
+            }
+            
+            // Si es Coordinador, mostrar con submenú
+            if (item.id === 'coordinator') {
+              const isActive = currentPage.startsWith('coordinator-');
+              return (
+                <li key={item.id}>
+                  <div
+                    className={`rounded-lg ${
+                      isActive
+                        ? 'bg-blue-600'
+                        : ''
+                    }`}
+                  >
+                    <button
+                      onClick={() => setShowCoordinatorSubmenu(!showCoordinatorSubmenu)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={20} />
+                        <span>{item.label}</span>
+                      </div>
+                      {showCoordinatorSubmenu ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
+                    {showCoordinatorSubmenu && (
+                      <ul className="mt-1 ml-8 space-y-1 pb-2">
+                        {coordinatorSubmenuItems.map((subItem) => {
+                          const SubIcon = subItem.icon;
+                          return (
+                            <li key={subItem.id}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigate(subItem.id);
+                                }}
+                                className={`w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                  currentPage === subItem.id
+                                    ? 'bg-blue-700 text-white'
+                                    : 'text-slate-400 hover:bg-slate-700'
+                                }`}
+                              >
+                                <SubIcon size={16} />
+                                {subItem.label}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </li>
+              );
+            }
+            
+            // Si es Supervisor, mostrar con submenú
+            if (item.id === 'supervisor') {
+              const isActive = currentPage.startsWith('supervisor-');
+              return (
+                <li key={item.id}>
+                  <div
+                    className={`rounded-lg ${
+                      isActive
+                        ? 'bg-blue-600'
+                        : ''
+                    }`}
+                  >
+                    <button
+                      onClick={() => setShowSupervisorSubmenu(!showSupervisorSubmenu)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={20} />
+                        <span>{item.label}</span>
+                      </div>
+                      {showSupervisorSubmenu ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
+                    {showSupervisorSubmenu && (
+                      <ul className="mt-1 ml-8 space-y-1 pb-2">
+                        {supervisorSubmenuItems.map((subItem) => {
+                          const SubIcon = subItem.icon;
+                          return (
+                            <li key={subItem.id}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigate(subItem.id);
+                                }}
+                                className={`w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                  currentPage === subItem.id
+                                    ? 'bg-blue-700 text-white'
+                                    : 'text-slate-400 hover:bg-slate-700'
+                                }`}
+                              >
+                                <SubIcon size={16} />
+                                {subItem.label}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </li>
+              );
+            }
+            
+            // Si es Mecánico, mostrar con submenú
+            if (item.id === 'mechanic') {
+              const isActive = currentPage.startsWith('mechanic-');
+              return (
+                <li key={item.id}>
+                  <div
+                    className={`rounded-lg ${
+                      isActive
+                        ? 'bg-blue-600'
+                        : ''
+                    }`}
+                  >
+                    <button
+                      onClick={() => setShowMechanicSubmenu(!showMechanicSubmenu)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={20} />
+                        <span>{item.label}</span>
+                      </div>
+                      {showMechanicSubmenu ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
+                    {showMechanicSubmenu && (
+                      <ul className="mt-1 ml-8 space-y-1 pb-2">
+                        {mechanicSubmenuItems.map((subItem) => {
+                          const SubIcon = subItem.icon;
+                          return (
+                            <li key={subItem.id}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigate(subItem.id);
+                                }}
+                                className={`w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                  currentPage === subItem.id
+                                    ? 'bg-blue-700 text-white'
+                                    : 'text-slate-400 hover:bg-slate-700'
+                                }`}
+                              >
+                                <SubIcon size={16} />
+                                {subItem.label}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </li>
+              );
+            }
+            
+            // Si es Jefe de Taller, mostrar con submenú
+            if (item.id === 'workshop-chief') {
+              const isActive = currentPage.startsWith('workshop-');
+              return (
+                <li key={item.id}>
+                  <div
+                    className={`rounded-lg ${
+                      isActive
+                        ? 'bg-blue-600'
+                        : ''
+                    }`}
+                  >
+                    <button
+                      onClick={() => setShowWorkshopChiefSubmenu(!showWorkshopChiefSubmenu)}
+                      className="w-full flex items-center justify-between px-4 py-3 text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon size={20} />
+                        <span>{item.label}</span>
+                      </div>
+                      {showWorkshopChiefSubmenu ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    </button>
+                    {showWorkshopChiefSubmenu && (
+                      <ul className="mt-1 ml-8 space-y-1 pb-2">
+                        {workshopChiefSubmenuItems.map((subItem) => {
+                          const SubIcon = subItem.icon;
+                          return (
+                            <li key={subItem.id}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigate(subItem.id);
+                                }}
+                                className={`w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                  currentPage === subItem.id
+                                    ? 'bg-blue-700 text-white'
+                                    : 'text-slate-400 hover:bg-slate-700'
+                                }`}
+                              >
+                                <SubIcon size={16} />
+                                {subItem.label}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </li>
+              );
+            }
+            
             // Si es Portería, mostrar con submenú
             if (item.id === 'gate') {
-              const isActive = currentPage === item.id || currentPage === 'gate-dashboard' || currentPage === 'gate-registrar' || currentPage === 'gate-ingreso' || currentPage === 'gate-qr-scanner';
+              const isActive = currentPage.startsWith('gate-');
               return (
                 <li key={item.id}>
                   <div
@@ -136,68 +452,27 @@ export default function Sidebar({ currentPage, onNavigate, isOpen = true, onClos
                     </button>
                     {showGateSubmenu && (
                       <ul className="mt-1 ml-8 space-y-1 pb-2">
-                        <li>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigate('gate-dashboard');
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm text-slate-400 hover:bg-slate-700"
-                          >
-                            Dashboard
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigate('gate-qr-scanner');
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm text-slate-400 hover:bg-slate-700"
-                          >
-                            <QrCode size={16} />
-                            Escáner QR
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigate(item.id);
-                              // Enviar evento personalizado para cambiar de pestaña
-                              window.dispatchEvent(new CustomEvent('changeGateTab', { detail: 'registrar' }));
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm text-slate-400 hover:bg-slate-700"
-                          >
-                            Registrar Vehículo
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigate(item.id);
-                              // Enviar evento personalizado para cambiar de pestaña
-                              window.dispatchEvent(new CustomEvent('changeGateTab', { detail: 'ingreso' }));
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm text-slate-400 hover:bg-slate-700"
-                          >
-                            Registro de Ingreso
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigate(item.id);
-                              // Enviar evento personalizado para cambiar de pestaña
-                              window.dispatchEvent(new CustomEvent('changeGateTab', { detail: 'salida' }));
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm text-slate-400 hover:bg-slate-700"
-                          >
-                            Registro de Salida
-                          </button>
-                        </li>
+                        {gateSubmenuItems.map((subItem) => {
+                          const SubIcon = subItem.icon;
+                          return (
+                            <li key={subItem.id}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigate(subItem.id);
+                                }}
+                                className={`w-full flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                  currentPage === subItem.id
+                                    ? 'bg-blue-700 text-white'
+                                    : 'text-slate-400 hover:bg-slate-700'
+                                }`}
+                              >
+                                <SubIcon size={16} />
+                                {subItem.label}
+                              </button>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </div>

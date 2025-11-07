@@ -8,6 +8,8 @@ import { CheckCircle, X, AlertCircle, Camera, QrCode } from 'lucide-react';
 export default function GateQRScanner() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const mode = searchParams.get('mode') || 'ingreso'; // 'ingreso' o 'salida'
   const [scanning, setScanning] = useState(false);
   const [lastScanned, setLastScanned] = useState<string | null>(null);
   const [result, setResult] = useState<{ success: boolean; message: string; vehicle?: any } | null>(null);
@@ -289,7 +291,124 @@ export default function GateQRScanner() {
     setScanning(false);
   };
 
+  const handleScannedQRSalida = async (decodedText: string) => {
+    try {
+      // Extraer la patente del texto escaneado
+      let patente = decodedText;
+      if (decodedText.includes('/vehiculo/')) {
+        patente = decodedText.split('/vehiculo/').pop() || decodedText;
+        patente = decodeURIComponent(patente);
+      }
+      
+      const patenteNormalizada = patente.toUpperCase().trim();
+      console.log('🚗 Procesando salida para patente:', patenteNormalizada);
+
+      // Buscar el vehículo
+      const vehiculosLocal = readLocal('apt_vehiculos', []);
+      const vehicle = vehiculosLocal.find((v: any) => v.patente_vehiculo?.toUpperCase() === patenteNormalizada);
+
+      if (!vehicle) {
+        setResult({
+          success: false,
+          message: `❌ Vehículo con patente ${patenteNormalizada} no encontrado.`,
+          vehicleData: { patente: patenteNormalizada }
+        });
+        
+        setTimeout(() => {
+          setResult(null);
+          setLastScanned(null);
+          startScanning();
+        }, 2000);
+        return;
+      }
+
+      // Verificar que haya un ingreso previo sin salida
+      const registrosIngreso = readLocal('apt_registros_ingreso', []);
+      const registrosSalida = readLocal('apt_registros_salida', []);
+      const historialAutorizados = readLocal('apt_historial_autorizados', []);
+      const historialSalidas = readLocal('apt_historial_salidas', []);
+
+      const todosRegistros = [
+        ...registrosIngreso.map((r: any) => ({ ...r, tipo: 'ingreso', fecha: r.fecha })),
+        ...registrosSalida.map((r: any) => ({ ...r, tipo: 'salida', fecha: r.fecha_salida })),
+        ...historialAutorizados.map((r: any) => ({ ...r, tipo: 'ingreso', fecha: r.fecha_busqueda })),
+        ...historialSalidas.map((r: any) => ({ ...r, tipo: 'salida', fecha: r.fecha_salida }))
+      ].filter((r: any) => r.patente?.toUpperCase() === patenteNormalizada)
+        .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+      const ultimoRegistro = todosRegistros[0];
+
+      if (!ultimoRegistro || ultimoRegistro.tipo === 'salida') {
+        setResult({
+          success: false,
+          message: `❌ El vehículo no tiene un ingreso registrado o ya ha salido.`,
+          vehicleData: { patente: patenteNormalizada }
+        });
+        
+        setTimeout(() => {
+          setResult(null);
+          setLastScanned(null);
+          startScanning();
+        }, 2000);
+        return;
+      }
+
+      // Registrar la salida
+      const fechaHora = new Date();
+      const registroSalida = {
+        id: Date.now(),
+        patente: patenteNormalizada,
+        fecha_salida: fechaHora.toISOString(),
+        hora_salida: fechaHora.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+        motivo_salida: 'Salida registrada por QR',
+        estado: 'salida_registrada',
+      };
+
+      const salidasActuales = readLocal('apt_registros_salida', []);
+      writeLocal('apt_registros_salida', [registroSalida, ...salidasActuales]);
+
+      const historialSalidasActual = readLocal('apt_historial_salidas', []);
+      writeLocal('apt_historial_salidas', [registroSalida, ...historialSalidasActual].slice(0, 100));
+
+      setResult({
+        success: true,
+        message: `✅ Salida registrada exitosamente`,
+        vehicleData: {
+          patente: patenteNormalizada,
+          hora: registroSalida.hora_salida
+        }
+      });
+
+      console.log('✅ Salida registrada:', registroSalida);
+
+      setTimeout(() => {
+        setResult(null);
+        setLastScanned(null);
+        startScanning();
+      }, 2000);
+
+    } catch (error: any) {
+      console.error('❌ Error al procesar salida:', error);
+      setResult({
+        success: false,
+        message: `Error: ${error.message}`
+      });
+      
+      setTimeout(() => {
+        setResult(null);
+        setLastScanned(null);
+        startScanning();
+      }, 2000);
+    }
+  };
+
   const handleScannedQR = async (decodedText: string) => {
+    // Si es modo salida, usar el flujo de salida
+    if (mode === 'salida') {
+      handleScannedQRSalida(decodedText);
+      return;
+    }
+
     try {
       // Detener el escáner temporalmente para evitar múltiples escaneos
       await stopScanning();
@@ -527,7 +646,7 @@ export default function GateQRScanner() {
         {/* Header */}
         <div className="mb-6">
           <button
-            onClick={() => navigate('/gate')}
+            onClick={() => navigate(mode === 'ingreso' ? '/gate-ingreso' : '/gate-salida')}
             className="mb-4 flex items-center gap-2 text-blue-400 hover:text-blue-300"
           >
             <X size={20} />
@@ -535,10 +654,12 @@ export default function GateQRScanner() {
           </button>
           <div className="flex items-center gap-3 mb-2">
             <QrCode size={32} className="text-blue-400" />
-            <h1 className="text-2xl font-bold">Escáner QR de Ingreso</h1>
+            <h1 className="text-2xl font-bold">
+              Escáner QR de {mode === 'ingreso' ? 'Ingreso' : 'Salida'}
+            </h1>
           </div>
           <p className="text-gray-400 mb-2">
-            Escanea el código QR del vehículo para registrar el ingreso automáticamente
+            Escanea el código QR del vehículo para registrar {mode === 'ingreso' ? 'el ingreso' : 'la salida'} automáticamente
           </p>
           <div className="bg-blue-900 border border-blue-700 rounded-lg p-3 mt-3">
             <p className="text-sm text-blue-200 mb-2">

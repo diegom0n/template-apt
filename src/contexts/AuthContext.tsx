@@ -29,6 +29,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       admin: { usuario: 'admin', clave: 'admin123', rol: 'admin', estado_usuario: true },
       planner: { usuario: 'planner', clave: 'planner123', rol: 'planner', estado_usuario: true },
       coordinador: { usuario: 'coordinador', clave: 'coordinador123', rol: 'planner', estado_usuario: true },
+      supervisor: { usuario: 'supervisor', clave: 'supervisor123', rol: 'supervisor', estado_usuario: true },
+      mecanico: { usuario: 'mecanico', clave: 'mecanico123', rol: 'mechanic', estado_usuario: true },
       driver1: { usuario: 'driver1', clave: 'driver123', rol: 'driver', estado_usuario: true },
       chofer: { usuario: 'chofer', clave: 'chofer123', rol: 'driver', estado_usuario: true },
       guardia: { usuario: 'guardia', clave: 'guardia123', rol: 'guard', estado_usuario: true },
@@ -41,8 +43,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('🔍 No hay BD configurada, buscando en localStorage...');
       // Primero intentar con usuarios de localStorage (empleados registrados)
       const usuariosLS = JSON.parse(localStorage.getItem('apt_usuarios') || '[]');
+      const empleadosLS = JSON.parse(localStorage.getItem('apt_empleados') || '[]');
       console.log('📋 Usuarios en localStorage:', usuariosLS);
-      const foundLS = usuariosLS.find((u: any) => u.usuario === username && u.clave === password && u.estado_usuario);
+      console.log('👥 Empleados en localStorage:', empleadosLS);
+      
+      // Buscar por nombre de usuario
+      let foundLS = usuariosLS.find((u: any) => u.usuario === username && u.clave === password && u.estado_usuario);
+      console.log('🔍 Búsqueda por username:', { username, password, foundLS: !!foundLS });
+      
+      // Si no se encuentra por username, buscar por RUT en los empleados
+      if (!foundLS) {
+        console.log('🔍 Buscando por RUT:', username);
+        const rutNormalizado = username.replace(/[.\-]/g, '');
+        console.log('🔍 RUT normalizado:', rutNormalizado);
+        
+        const empleadoPorRut = empleadosLS.find((e: any) => {
+          if (!e.rut_empleado) return false;
+          const rutEmpleadoNormalizado = e.rut_empleado.replace(/[.\-]/g, '');
+          console.log(`Comparando ${rutEmpleadoNormalizado} === ${rutNormalizado}:`, rutEmpleadoNormalizado === rutNormalizado);
+          return rutEmpleadoNormalizado === rutNormalizado;
+        });
+        
+        console.log('👤 Empleado encontrado por RUT:', empleadoPorRut);
+        
+        if (empleadoPorRut) {
+          console.log('🔍 Buscando usuario con id:', empleadoPorRut.usuario_id);
+          // Buscar el usuario asociado a este empleado
+          foundLS = usuariosLS.find((u: any) => {
+            const coincideId = u.id_usuario === empleadoPorRut.usuario_id;
+            const coincideClave = u.clave === password;
+            const estaActivo = u.estado_usuario;
+            console.log(`Usuario ${u.usuario}: id=${coincideId}, clave=${coincideClave}, activo=${estaActivo}`);
+            return coincideId && coincideClave && estaActivo;
+          });
+          console.log('🔍 Usuario encontrado por RUT:', foundLS);
+        }
+      }
+      
       console.log('🔍 Usuario encontrado en localStorage:', foundLS);
       
       if (foundLS) {

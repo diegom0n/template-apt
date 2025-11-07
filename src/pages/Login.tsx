@@ -43,7 +43,7 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-              Usuario
+              Usuario o RUT
             </label>
             <input
               id="username"
@@ -51,9 +51,12 @@ export default function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Ingrese su usuario"
+              placeholder="Ingrese su usuario o RUT"
               required
             />
+            <p className="text-xs text-gray-500 mt-1">
+              Puedes usar tu nombre de usuario o tu RUT
+            </p>
           </div>
 
           <div>

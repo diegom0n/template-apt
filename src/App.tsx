@@ -19,6 +19,9 @@ import EmployeeRegister from './pages/EmployeeRegister';
 import ScheduleDiagnostic from './pages/ScheduleDiagnostic';
 import CoordinatorDashboard from './pages/CoordinatorDashboard';
 import WorkshopChiefDashboard from './pages/WorkshopChiefDashboard';
+import SupervisorDashboard from './pages/SupervisorDashboard';
+import MechanicDashboard from './pages/MechanicDashboard';
+import AdminDashboard from './pages/AdminDashboard';
 import VehicleQRView from './pages/VehicleQRView';
 import GateQRScanner from './pages/GateQRScanner';
 
@@ -57,11 +60,23 @@ function AppContent() {
 
   // Determinar la ruta inicial según el rol del usuario
   const getInitialRoute = () => {
+    if (user?.rol === 'admin') {
+      return '/admin-usuarios';
+    }
     if (user?.rol === 'guard') {
-      return '/gate-dashboard';
+      return '/gate-ingreso';
     }
     if (user?.rol === 'jefe_taller') {
-      return '/workshop-chief-dashboard';
+      return '/workshop-agenda';
+    }
+    if (user?.rol === 'planner') {
+      return '/coordinator-solicitudes';
+    }
+    if (user?.rol === 'supervisor') {
+      return '/supervisor-tablero';
+    }
+    if (user?.rol === 'mechanic') {
+      return '/mechanic-assigned';
     }
     return '/dashboard';
   };
@@ -76,17 +91,45 @@ function AppContent() {
             <Routes>
               <Route path="/" element={<Navigate to={getInitialRoute()} replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/employees" element={<Employees />} />
-              <Route path="/vehicles" element={<Vehicles />} />
-              <Route path="/gate-dashboard" element={<GateDashboard />} />
-              <Route path="/gate" element={<Gate />} />
-              <Route path="/gate-qr-scanner" element={<GateQRScanner />} />
+              <Route path="/admin-usuarios" element={<AdminDashboard activeSection="usuarios" />} />
+              <Route path="/admin-vehiculos" element={<AdminDashboard activeSection="vehiculos" />} />
+              <Route path="/admin-roles" element={<AdminDashboard activeSection="roles" />} />
+              <Route path="/admin-catalogos" element={<AdminDashboard activeSection="catalogos" />} />
+              <Route path="/admin-agenda" element={<AdminDashboard activeSection="agenda" />} />
+              <Route path="/admin-flota" element={<AdminDashboard activeSection="flota" />} />
+              <Route path="/admin-auditoria" element={<AdminDashboard activeSection="auditoria" />} />
+              <Route path="/gate-ingreso" element={<Gate activeSection="ingreso" />} />
+              <Route path="/gate-salida" element={<Gate activeSection="salida" />} />
+              <Route path="/gate-sin-cita" element={<Gate activeSection="sin-cita" />} />
+              <Route path="/gate-historial" element={<Gate activeSection="historial" />} />
+              <Route path="/gate-consulta" element={<Gate activeSection="consulta" />} />
               <Route path="/work-orders" element={<WorkOrders />} />
               <Route path="/keys" element={<Keys />} />
             <Route path="/incidents" element={<Incidents />} />
             <Route path="/schedule-diagnostic" element={<ScheduleDiagnostic />} />
-            <Route path="/coordinator-dashboard" element={<CoordinatorDashboard />} />
-            <Route path="/workshop-chief-dashboard" element={<WorkshopChiefDashboard />} />
+            <Route path="/coordinator-agenda" element={<CoordinatorDashboard activeSection="agenda" />} />
+            <Route path="/coordinator-solicitudes" element={<CoordinatorDashboard activeSection="solicitudes" />} />
+            <Route path="/coordinator-emergencias" element={<CoordinatorDashboard activeSection="emergencias" />} />
+            <Route path="/coordinator-ordenes" element={<CoordinatorDashboard activeSection="ordenes" />} />
+            <Route path="/coordinator-vehiculos" element={<CoordinatorDashboard activeSection="vehiculos" />} />
+            <Route path="/coordinator-reportes" element={<CoordinatorDashboard activeSection="reportes" />} />
+            <Route path="/workshop-agenda" element={<WorkshopChiefDashboard activeSection="agenda" />} />
+            <Route path="/workshop-checklists" element={<WorkshopChiefDashboard activeSection="checklists" />} />
+            <Route path="/workshop-plan" element={<WorkshopChiefDashboard activeSection="plan" />} />
+            <Route path="/workshop-asignacion" element={<WorkshopChiefDashboard activeSection="asignacion" />} />
+            <Route path="/workshop-reparacion" element={<WorkshopChiefDashboard activeSection="reparacion" />} />
+            <Route path="/workshop-cierre" element={<WorkshopChiefDashboard activeSection="cierre" />} />
+            <Route path="/workshop-carga" element={<WorkshopChiefDashboard activeSection="carga" />} />
+            <Route path="/supervisor-tablero" element={<SupervisorDashboard activeSection="tablero" />} />
+            <Route path="/supervisor-diagnosticos" element={<SupervisorDashboard activeSection="diagnosticos" />} />
+            <Route path="/supervisor-asignaciones" element={<SupervisorDashboard activeSection="asignaciones" />} />
+            <Route path="/supervisor-emergencias" element={<SupervisorDashboard activeSection="emergencias" />} />
+            <Route path="/supervisor-calidad" element={<SupervisorDashboard activeSection="calidad" />} />
+            <Route path="/supervisor-indicadores" element={<SupervisorDashboard activeSection="indicadores" />} />
+            <Route path="/mechanic-assigned" element={<MechanicDashboard activeSection="assigned" />} />
+            <Route path="/mechanic-detail" element={<MechanicDashboard activeSection="detail" />} />
+            <Route path="/mechanic-progress" element={<MechanicDashboard activeSection="progress" />} />
+            <Route path="/mechanic-history" element={<MechanicDashboard activeSection="history" />} />
             <Route path="/vehiculo/:patente" element={<VehicleQRView />} />
             <Route path="*" element={<Navigate to={getInitialRoute()} replace />} />
             </Routes>

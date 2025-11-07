@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, Truck, User, AlertCircle, CheckCircle, FileText, Wrench, Settings, ClipboardList } from 'lucide-react';
+import { Calendar, Clock, Truck, User, AlertCircle, CheckCircle, FileText, Wrench, Settings, ClipboardList, Activity } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import Modal from '../components/Modal';
@@ -11,14 +11,23 @@ const PRIORIDADES_OT = [
   { value: 'critica', label: 'Crítica', color: 'bg-red-100 text-red-800' },
 ];
 
-export default function WorkshopChiefDashboard() {
+interface WorkshopChiefDashboardProps {
+  activeSection?: 'agenda' | 'checklists' | 'plan' | 'asignacion' | 'reparacion' | 'cierre' | 'carga';
+}
+
+export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: WorkshopChiefDashboardProps) {
   const { user } = useAuth();
   const [diagnosticosDelDia, setDiagnosticosDelDia] = useState<any[]>([]);
+  const [diagnosticosProximos, setDiagnosticosProximos] = useState<any[]>([]);
+  const [agendaTab, setAgendaTab] = useState<'hoy' | 'proximos'>('hoy');
   const [ordenesDiagnostico, setOrdenesDiagnostico] = useState<any[]>([]);
+  const [checklistTab, setChecklistTab] = useState<'pendientes' | 'realizados'>('pendientes');
   const [loading, setLoading] = useState(true);
   const [selectedOT, setSelectedOT] = useState<any | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [showChecklist, setShowChecklist] = useState(false);
+  const [viewOnlyModal, setViewOnlyModal] = useState(false);
+  const [selectedDiagnostico, setSelectedDiagnostico] = useState<any | null>(null);
   const [mechanics, setMechanics] = useState<any[]>([]);
   const [checklists, setChecklists] = useState<any[]>([]);
   
@@ -50,8 +59,10 @@ export default function WorkshopChiefDashboard() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (activeSection === 'agenda' || activeSection === 'checklists') {
+      loadData();
+    }
+  }, [activeSection]);
 
   const loadData = async () => {
     try {
@@ -65,12 +76,13 @@ export default function WorkshopChiefDashboard() {
       const historialAutorizados = readLocal('apt_historial_autorizados', []);
       const empleados = readLocal('apt_empleados', []);
       
-      // Filtrar órdenes de diagnóstico (incluyendo las que están en curso si tienen solicitud de diagnóstico)
+      // Filtrar órdenes de diagnóstico (incluyendo las que están en curso o en reparación si tienen solicitud de diagnóstico)
       const ordenesDiagnosticoFiltered = ordenes.filter((o: any) => {
         const tieneSolicitud = o.solicitud_diagnostico_id || 
           solicitudes.some((s: any) => s.orden_trabajo_id === o.id_orden_trabajo);
         return o.estado_ot === 'en_diagnostico_programado' || 
-          (o.estado_ot === 'en curso' && tieneSolicitud);
+          (o.estado_ot === 'en curso' && tieneSolicitud) ||
+          (o.estado_ot === 'en_reparacion' && tieneSolicitud);
       });
       
       // Enriquecer órdenes con información de solicitudes
@@ -114,10 +126,17 @@ export default function WorkshopChiefDashboard() {
         };
       });
       
-      setOrdenesDiagnostico(ordenesEnriquecidas);
+      // Ordenar por orden de llegada (más recientes primero)
+      const ordenesOrdenadas = ordenesEnriquecidas.sort((a: any, b: any) => {
+        const fechaA = new Date(a.created_at || a.fecha_inicio_ot || 0).getTime();
+        const fechaB = new Date(b.created_at || b.fecha_inicio_ot || 0).getTime();
+        return fechaB - fechaA; // Descendente: más nuevas primero
+      });
       
-      // Filtrar diagnósticos para hoy
-      const diagnosticosHoy = ordenesEnriquecidas.filter((o: any) => {
+      setOrdenesDiagnostico(ordenesOrdenadas);
+      
+      // Filtrar diagnósticos para hoy (usando las ordenadas)
+      const diagnosticosHoy = ordenesOrdenadas.filter((o: any) => {
         const fechaConfirmada = o.fecha_confirmada || o.fecha_inicio_ot;
         const fechaConfirmadaNormalizada = fechaConfirmada 
           ? new Date(fechaConfirmada).toISOString().split('T')[0] 
@@ -125,7 +144,22 @@ export default function WorkshopChiefDashboard() {
         return fechaConfirmadaNormalizada === hoy;
       });
       
+      // Filtrar diagnósticos próximos (fechas futuras, usando las ordenadas)
+      const diagnosticosFuturos = ordenesOrdenadas.filter((o: any) => {
+        const fechaConfirmada = o.fecha_confirmada || o.fecha_inicio_ot;
+        const fechaConfirmadaNormalizada = fechaConfirmada 
+          ? new Date(fechaConfirmada).toISOString().split('T')[0] 
+          : null;
+        return fechaConfirmadaNormalizada && fechaConfirmadaNormalizada > hoy;
+      }).sort((a: any, b: any) => {
+        // Ordenar por fecha más cercana primero
+        const fechaA = new Date(a.fecha_confirmada || a.fecha_inicio_ot).getTime();
+        const fechaB = new Date(b.fecha_confirmada || b.fecha_inicio_ot).getTime();
+        return fechaA - fechaB;
+      });
+      
       setDiagnosticosDelDia(diagnosticosHoy);
+      setDiagnosticosProximos(diagnosticosFuturos);
       
       // Cargar mecánicos (empleados con cargo de mecánico)
       // Por ahora, cargar todos los empleados como mecánicos disponibles
@@ -140,6 +174,11 @@ export default function WorkshopChiefDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleViewDiagnostico = (diagnostico: any) => {
+    setSelectedDiagnostico(diagnostico);
+    setViewOnlyModal(true);
   };
 
   const handleOpenOT = (orden: any) => {
@@ -260,13 +299,20 @@ export default function WorkshopChiefDashboard() {
       );
       
       if (ordenIndex !== -1) {
+        // Si el checklist tiene clasificación de prioridad, cambiar estado a "en_reparacion"
+        const nuevoEstado = checklistData.clasificacion_prioridad ? 'en_reparacion' : ordenes[ordenIndex].estado_ot;
+        
         ordenes[ordenIndex] = {
           ...ordenes[ordenIndex],
           checklist_id: checklistId,
           // Actualizar prioridad si viene del checklist
           prioridad_ot: checklistData.clasificacion_prioridad || ordenes[ordenIndex].prioridad_ot,
+          // Cambiar estado a "en_reparacion" si el checklist está completo
+          estado_ot: nuevoEstado,
         };
         writeLocal('apt_ordenes_trabajo', ordenes);
+        
+        console.log(`✅ OT #${selectedOT.id_orden_trabajo} cambiada a estado: ${nuevoEstado}`);
         
         // Actualizar en Supabase si está configurado
         if (hasEnv) {
@@ -276,6 +322,7 @@ export default function WorkshopChiefDashboard() {
               .update({
                 checklist_id: checklistId,
                 prioridad_ot: checklistData.clasificacion_prioridad || selectedOT.prioridad_ot,
+                estado_ot: nuevoEstado,
               })
               .eq('id_orden_trabajo', selectedOT.id_orden_trabajo);
           } catch (error) {
@@ -290,7 +337,11 @@ export default function WorkshopChiefDashboard() {
         prioridad_ot: checklistData.clasificacion_prioridad || formData.prioridad_ot,
       });
       
-      alert('✅ Checklist guardado exitosamente');
+      const mensajeExito = checklistData.clasificacion_prioridad 
+        ? '✅ Checklist guardado exitosamente. La OT ha pasado a estado "En Reparación".'
+        : '✅ Checklist guardado exitosamente.';
+      
+      alert(mensajeExito);
       setShowChecklist(false);
       // Reabrir el modal de gestión después de guardar el checklist
       setModalOpen(true);
@@ -329,31 +380,61 @@ export default function WorkshopChiefDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Jefe de Taller - Dashboard</h1>
-        <p className="text-gray-600">
-          Gestiona los diagnósticos programados y las órdenes de trabajo en diagnóstico.
-        </p>
-      </div>
-
-      {/* Agenda de Diagnósticos del Día */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-            <Calendar className="text-blue-600" size={24} />
-            Agenda de Diagnósticos del Día
-          </h2>
-          <span className="text-sm text-gray-500">
-            {new Date().toLocaleDateString('es-CL', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
-            })}
-          </span>
-        </div>
+      {/* Contenido de Agenda de Diagnósticos */}
+      {activeSection === 'agenda' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Agenda de Diagnósticos</h1>
+          <p className="text-gray-600 mb-4">Vehículos programados para diagnóstico, separados por fecha.</p>
+          
+          {/* Pestañas */}
+          <div className="flex gap-2 mb-6 border-b border-gray-200">
+            <button
+              onClick={() => setAgendaTab('hoy')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                agendaTab === 'hoy'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              📅 Hoy
+              {diagnosticosDelDia.length > 0 && (
+                <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full">
+                  {diagnosticosDelDia.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setAgendaTab('proximos')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                agendaTab === 'proximos'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              🗓️ Próximos
+              {diagnosticosProximos.length > 0 && (
+                <span className="ml-2 px-2 py-0.5 bg-gray-100 text-gray-800 text-xs rounded-full">
+                  {diagnosticosProximos.length}
+                </span>
+              )}
+            </button>
+          </div>
+          
+          {/* Fecha actual (solo si estamos en "Hoy") */}
+          {agendaTab === 'hoy' && (
+            <div className="flex items-center gap-2 mb-4 text-sm text-gray-500">
+              <Clock size={16} />
+              {new Date().toLocaleDateString('es-CL', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })}
+            </div>
+          )}
         
-        {diagnosticosDelDia.length === 0 ? (
+        {/* Contenido de "Hoy" */}
+        {agendaTab === 'hoy' && (diagnosticosDelDia.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <Calendar className="mx-auto text-gray-400 mb-4" size={48} />
             <p>No hay diagnósticos programados para hoy.</p>
@@ -384,6 +465,18 @@ export default function WorkshopChiefDashboard() {
                     </div>
                     
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                      <div className="flex items-center gap-2 col-span-2 md:col-span-1">
+                        <Calendar className="text-blue-600" size={16} />
+                        <span className="text-blue-700 font-semibold">
+                          📅 {formatDate(diagnostico.fecha_confirmada)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="text-gray-400" size={16} />
+                        <span className="text-gray-700">
+                          <strong>Horario:</strong> {diagnostico.bloque_horario}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-2">
                         <User className="text-gray-400" size={16} />
                         <span className="text-gray-700">
@@ -394,12 +487,6 @@ export default function WorkshopChiefDashboard() {
                         <AlertCircle className="text-gray-400" size={16} />
                         <span className="text-gray-700">
                           <strong>Problema:</strong> {diagnostico.tipo_problema}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Clock className="text-gray-400" size={16} />
-                        <span className="text-gray-700">
-                          <strong>Horario:</strong> {diagnostico.bloque_horario}
                         </span>
                       </div>
                       {diagnostico.ya_ingreso && diagnostico.ingreso_hora && (
@@ -414,34 +501,169 @@ export default function WorkshopChiefDashboard() {
                   </div>
                   
                   <button
-                    onClick={() => handleOpenOT(diagnostico)}
+                    onClick={() => handleViewDiagnostico(diagnostico)}
                     className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
                   >
                     <FileText size={18} />
-                    Abrir OT
+                    Ver Info
                   </button>
                 </div>
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Órdenes de Trabajo en Diagnóstico */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Wrench className="text-blue-600" size={24} />
-          Órdenes de Trabajo en Diagnóstico
-        </h2>
+        ))}
         
-        {ordenesDiagnostico.length === 0 ? (
+        {/* Contenido de "Próximos" */}
+        {agendaTab === 'proximos' && (diagnosticosProximos.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            <FileText className="mx-auto text-gray-400 mb-4" size={48} />
-            <p>No hay órdenes de trabajo en diagnóstico.</p>
+            <Calendar className="mx-auto text-gray-400 mb-4" size={48} />
+            <p>No hay diagnósticos programados para fechas próximas.</p>
           </div>
         ) : (
           <div className="grid gap-4">
-            {ordenesDiagnostico.map((orden) => (
+            {diagnosticosProximos.map((diagnostico) => (
+              <div
+                key={diagnostico.id_orden_trabajo}
+                className="p-4 rounded-lg border-l-4 bg-gray-50 border-gray-400"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Truck className="text-gray-600" size={20} />
+                      <span className="font-semibold text-gray-900 text-lg">
+                        {diagnostico.patente_vehiculo}
+                      </span>
+                      <span className="px-2 py-1 bg-gray-200 text-gray-800 text-xs rounded-full">
+                        Programado
+                      </span>
+                      {diagnostico.prioridad_ot && (
+                        <span className={`px-2 py-1 text-xs rounded-full ${
+                          PRIORIDADES_OT.find(p => p.value === diagnostico.prioridad_ot)?.color || 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {PRIORIDADES_OT.find(p => p.value === diagnostico.prioridad_ot)?.label || diagnostico.prioridad_ot}
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                      <div className="flex items-center gap-2 col-span-2 md:col-span-1">
+                        <Calendar className="text-blue-600" size={16} />
+                        <span className="text-blue-700 font-semibold">
+                          📅 {formatDate(diagnostico.fecha_confirmada)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="text-gray-400" size={16} />
+                        <span className="text-gray-700">
+                          <strong>Horario:</strong> {diagnostico.bloque_horario}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <User className="text-gray-400" size={16} />
+                        <span className="text-gray-700">
+                          <strong>Chofer:</strong> {diagnostico.empleado_nombre}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="text-gray-400" size={16} />
+                        <span className="text-gray-700">
+                          <strong>Problema:</strong> {diagnostico.tipo_problema}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => handleViewDiagnostico(diagnostico)}
+                    className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                  >
+                    <FileText size={18} />
+                    Ver Info
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+        </div>
+      )}
+
+      {/* Contenido de Checklists de Diagnóstico */}
+      {activeSection === 'checklists' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Checklists de Diagnóstico</h1>
+          <p className="text-gray-600 mb-4">Gestionar checklists de diagnóstico por estado.</p>
+        
+          {/* Pestañas */}
+          <div className="flex gap-2 mb-6 border-b border-gray-200">
+            <button
+              onClick={() => setChecklistTab('pendientes')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                checklistTab === 'pendientes'
+                  ? 'text-orange-600 border-b-2 border-orange-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              ⏳ Pendientes
+              {(() => {
+                const pendientes = ordenesDiagnostico.filter((o: any) => {
+                  const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
+                  const checklistExistente = checklistsGuardados.find((c: any) => 
+                    c.orden_trabajo_id === o.id_orden_trabajo
+                  );
+                  return !checklistExistente || !checklistExistente.clasificacion_prioridad;
+                });
+                return pendientes.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 bg-orange-100 text-orange-800 text-xs rounded-full">
+                    {pendientes.length}
+                  </span>
+                );
+              })()}
+            </button>
+            <button
+              onClick={() => setChecklistTab('realizados')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                checklistTab === 'realizados'
+                  ? 'text-green-600 border-b-2 border-green-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              ✅ Realizados
+              {(() => {
+                const realizados = ordenesDiagnostico.filter((o: any) => {
+                  const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
+                  const checklistExistente = checklistsGuardados.find((c: any) => 
+                    c.orden_trabajo_id === o.id_orden_trabajo
+                  );
+                  return checklistExistente && checklistExistente.clasificacion_prioridad;
+                });
+                return realizados.length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">
+                    {realizados.length}
+                  </span>
+                );
+              })()}
+            </button>
+          </div>
+        
+        {/* Contenido de Pendientes */}
+        {checklistTab === 'pendientes' && (() => {
+          const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
+          const ordenesPendientes = ordenesDiagnostico.filter((o: any) => {
+            const checklistExistente = checklistsGuardados.find((c: any) => 
+              c.orden_trabajo_id === o.id_orden_trabajo
+            );
+            return !checklistExistente || !checklistExistente.clasificacion_prioridad;
+          });
+          
+          return ordenesPendientes.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <ClipboardList className="mx-auto text-gray-400 mb-4" size={48} />
+              <p>No hay checklists pendientes.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {ordenesPendientes.map((orden) => (
               <div
                 key={orden.id_orden_trabajo}
                 className={`p-4 rounded-lg border-l-4 ${
@@ -512,10 +734,346 @@ export default function WorkshopChiefDashboard() {
                   </button>
                 </div>
               </div>
-            ))}
+              ))}
+            </div>
+          );
+        })()}
+        
+        {/* Contenido de Realizados */}
+        {checklistTab === 'realizados' && (() => {
+          const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
+          const ordenesRealizadas = ordenesDiagnostico.filter((o: any) => {
+            const checklistExistente = checklistsGuardados.find((c: any) => 
+              c.orden_trabajo_id === o.id_orden_trabajo
+            );
+            return checklistExistente && checklistExistente.clasificacion_prioridad;
+          });
+          
+          return ordenesRealizadas.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <CheckCircle className="mx-auto text-gray-400 mb-4" size={48} />
+              <p>No hay diagnósticos realizados.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {ordenesRealizadas.map((orden) => {
+                const checklistExistente = checklistsGuardados.find((c: any) => 
+                  c.orden_trabajo_id === orden.id_orden_trabajo
+                );
+                
+                return (
+                  <div
+                    key={orden.id_orden_trabajo}
+                    className="p-4 rounded-lg border-l-4 bg-green-50 border-green-500"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <Truck className="text-gray-600" size={20} />
+                          <span className="font-semibold text-gray-900 text-lg">
+                            {orden.patente_vehiculo}
+                          </span>
+                          <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                            ✓ Checklist Completado
+                          </span>
+                          {orden.prioridad_ot && (
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              PRIORIDADES_OT.find(p => p.value === orden.prioridad_ot)?.color || 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {PRIORIDADES_OT.find(p => p.value === orden.prioridad_ot)?.label || orden.prioridad_ot}
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-2">
+                          <div className="flex items-center gap-2">
+                            <User className="text-gray-400" size={16} />
+                            <span className="text-gray-700">
+                              <strong>Chofer:</strong> {orden.empleado_nombre}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="text-gray-400" size={16} />
+                            <span className="text-gray-700">
+                              <strong>Problema:</strong> {orden.tipo_problema}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="text-gray-400" size={16} />
+                            <span className="text-gray-700">
+                              <strong>Fecha:</strong> {formatDate(orden.fecha_confirmada)}
+                            </span>
+                          </div>
+                          {checklistExistente && (
+                            <div className="flex items-center gap-2">
+                              <CheckCircle className="text-green-600" size={16} />
+                              <span className="text-green-700">
+                                <strong>Clasificación:</strong> {checklistExistente.clasificacion_prioridad || 'N/A'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={() => handleOpenOT(orden)}
+                        className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                      >
+                        <FileText size={18} />
+                        Ver Detalles
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+        </div>
+      )}
+
+      {/* Contenido de Plan de Reparación */}
+      {activeSection === 'plan' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Plan de Reparación</h1>
+          <p className="text-gray-600 mb-6">Definir trabajos, horas estimadas y repuestos sugeridos para cada OT.</p>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+            <FileText className="mx-auto text-blue-400 mb-4" size={48} />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Funcionalidad en desarrollo</h3>
+            <p className="text-gray-600">
+              Aquí podrás definir el plan de reparación con detalle de trabajos, tiempos y repuestos.
+            </p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Contenido de Asignación de Mecánicos */}
+      {activeSection === 'asignacion' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Asignación de Mecánicos</h1>
+          <p className="text-gray-600 mb-6">Asignar/reasignar mecánicos a tareas específicas según carga de trabajo.</p>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+            <User className="mx-auto text-blue-400 mb-4" size={48} />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Funcionalidad en desarrollo</h3>
+            <p className="text-gray-600">
+              Aquí podrás gestionar la asignación de mecánicos a diferentes tareas.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Contenido de OT en Reparación */}
+      {activeSection === 'reparacion' && (() => {
+        const ordenesEnReparacion = ordenesDiagnostico.filter((o: any) => o.estado_ot === 'en_reparacion');
+        const progresos = readLocal('apt_progresos_mecanico', []);
+        
+        return (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">OT en Reparación</h1>
+            <p className="text-gray-600 mb-6">Ver avance técnico (tareas terminadas / pendientes, observaciones).</p>
+            
+            {ordenesEnReparacion.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Settings className="mx-auto text-gray-400 mb-4" size={48} />
+                <p>No hay órdenes de trabajo en reparación actualmente.</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {ordenesEnReparacion.map((orden) => {
+                  const progresosOT = progresos.filter((p: any) => p.orden_trabajo_id === orden.id_orden_trabajo);
+                  const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
+                  const checklistExistente = checklistsGuardados.find((c: any) => 
+                    c.orden_trabajo_id === orden.id_orden_trabajo
+                  );
+                  
+                  return (
+                    <div
+                      key={orden.id_orden_trabajo}
+                      className="p-4 rounded-lg border-l-4 bg-blue-50 border-blue-500"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Wrench className="text-blue-600" size={24} />
+                            <span className="font-semibold text-gray-900 text-xl">
+                              {orden.patente_vehiculo}
+                            </span>
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                              🔧 En Reparación
+                            </span>
+                            {orden.prioridad_ot && (
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                PRIORIDADES_OT.find(p => p.value === orden.prioridad_ot)?.color || 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {PRIORIDADES_OT.find(p => p.value === orden.prioridad_ot)?.label || orden.prioridad_ot}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <User className="text-gray-400" size={16} />
+                              <span className="text-gray-700">
+                                <strong>Chofer:</strong> {orden.empleado_nombre}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <AlertCircle className="text-gray-400" size={16} />
+                              <span className="text-gray-700">
+                                <strong>Problema:</strong> {orden.tipo_problema}
+                              </span>
+                            </div>
+                            {checklistExistente && (
+                              <div className="flex items-center gap-2">
+                                <ClipboardList className="text-green-600" size={16} />
+                                <span className="text-green-700">
+                                  <strong>Diagnóstico:</strong> {checklistExistente.clasificacion_prioridad || 'N/A'}
+                                </span>
+                              </div>
+                            )}
+                            {orden.mecanico_apoyo_ids && orden.mecanico_apoyo_ids.length > 0 && (
+                              <div className="flex items-center gap-2">
+                                <Settings className="text-blue-600" size={16} />
+                                <span className="text-blue-700">
+                                  <strong>Mecánicos:</strong> {orden.mecanico_apoyo_ids.length} asignado(s)
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Progresos Registrados */}
+                      {progresosOT.length > 0 ? (
+                        <div className="mt-4 border-t pt-4">
+                          <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Activity size={18} className="text-blue-600" />
+                            Avances Registrados ({progresosOT.length})
+                          </h4>
+                          <div className="space-y-3">
+                            {progresosOT.map((progreso: any, index: number) => (
+                              <div key={index} className="bg-white p-3 rounded border border-gray-200">
+                                <div className="flex items-start justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle className="text-green-600" size={16} />
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {new Date(progreso.fecha_registro || progreso.created_at).toLocaleDateString('es-ES', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })}
+                                    </span>
+                                  </div>
+                                  {progreso.hora_inicio && progreso.hora_fin && (
+                                    <span className="text-xs text-gray-500">
+                                      ⏱️ {progreso.hora_inicio} - {progreso.hora_fin}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-700 mb-1">
+                                  <strong>Trabajo realizado:</strong> {progreso.descripcion_trabajo || 'N/A'}
+                                </p>
+                                {progreso.observaciones && (
+                                  <p className="text-xs text-gray-600">
+                                    <strong>Observaciones:</strong> {progreso.observaciones}
+                                  </p>
+                                )}
+                                {progreso.fotos && progreso.fotos.length > 0 && (
+                                  <div className="mt-2 flex gap-2">
+                                    {progreso.fotos.slice(0, 3).map((foto: string, fIndex: number) => (
+                                      <img
+                                        key={fIndex}
+                                        src={foto}
+                                        alt={`Foto ${fIndex + 1}`}
+                                        className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80"
+                                        onClick={() => window.open(foto, '_blank')}
+                                      />
+                                    ))}
+                                    {progreso.fotos.length > 3 && (
+                                      <span className="text-xs text-gray-500 self-center">
+                                        +{progreso.fotos.length - 3} más
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-4 border-t pt-4 text-center py-4 bg-yellow-50 rounded">
+                          <p className="text-sm text-yellow-800">
+                            ⚠️ Aún no se han registrado avances para esta OT
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Contenido de Cierre Técnico de OT */}
+      {activeSection === 'cierre' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Cierre Técnico de OT</h1>
+          <p className="text-gray-600 mb-6">Validación final, prueba de ruta y marcar vehículo como "Listo para entrega".</p>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+            <CheckCircle className="mx-auto text-blue-400 mb-4" size={48} />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Funcionalidad en desarrollo</h3>
+            <p className="text-gray-600">
+              Aquí podrás realizar el cierre técnico de las OT finalizadas.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Contenido de Carga del Taller */}
+      {activeSection === 'carga' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Carga del Taller</h1>
+          <p className="text-gray-600 mb-6">Vista general de boxes, mecánicos ocupados y OT críticas.</p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center gap-3 mb-2">
+                <Settings className="text-blue-600" size={24} />
+                <div className="text-sm font-medium text-gray-700">Boxes Ocupados</div>
+              </div>
+              <div className="text-2xl font-bold text-blue-600">0 / 0</div>
+            </div>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-3 mb-2">
+                <User className="text-green-600" size={24} />
+                <div className="text-sm font-medium text-gray-700">Mecánicos Disponibles</div>
+              </div>
+              <div className="text-2xl font-bold text-green-600">0</div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center gap-3 mb-2">
+                <AlertCircle className="text-red-600" size={24} />
+                <div className="text-sm font-medium text-gray-700">OT Críticas</div>
+              </div>
+              <div className="text-2xl font-bold text-red-600">0</div>
+            </div>
+          </div>
+          
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+            <Activity className="mx-auto text-gray-400 mb-4" size={48} />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Vista general del taller próximamente</h3>
+            <p className="text-gray-600">
+              Aquí podrás visualizar en tiempo real la carga operativa del taller.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Checklist */}
       <Modal
@@ -690,6 +1248,154 @@ export default function WorkshopChiefDashboard() {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 Guardar Cambios
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal de Solo Visualización */}
+      <Modal
+        isOpen={viewOnlyModal}
+        onClose={() => {
+          setViewOnlyModal(false);
+          setSelectedDiagnostico(null);
+        }}
+        title="Información del Diagnóstico"
+        size="large"
+      >
+        {selectedDiagnostico && (
+          <div className="space-y-6">
+            {/* Header con Patente */}
+            <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border-l-4 border-blue-500">
+              <div className="flex items-center gap-3">
+                <Truck className="text-blue-600" size={32} />
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">{selectedDiagnostico.patente_vehiculo}</h3>
+                  <p className="text-sm text-gray-600">OT #{selectedDiagnostico.id_orden_trabajo}</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {selectedDiagnostico.ya_ingreso ? (
+                  <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                    ✓ Vehículo Ingresado
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium">
+                    ⏳ Pendiente de Ingreso
+                  </span>
+                )}
+                {selectedDiagnostico.prioridad_ot && (
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    PRIORIDADES_OT.find(p => p.value === selectedDiagnostico.prioridad_ot)?.color || 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {PRIORIDADES_OT.find(p => p.value === selectedDiagnostico.prioridad_ot)?.label || selectedDiagnostico.prioridad_ot}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Información General */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar className="text-blue-600" size={20} />
+                  <h4 className="font-semibold text-gray-900">Fecha Programada</h4>
+                </div>
+                <p className="text-lg text-gray-700 font-medium">
+                  {formatDate(selectedDiagnostico.fecha_confirmada)}
+                </p>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="text-blue-600" size={20} />
+                  <h4 className="font-semibold text-gray-900">Horario</h4>
+                </div>
+                <p className="text-lg text-gray-700 font-medium">
+                  {selectedDiagnostico.bloque_horario}
+                </p>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <User className="text-blue-600" size={20} />
+                  <h4 className="font-semibold text-gray-900">Chofer</h4>
+                </div>
+                <p className="text-lg text-gray-700">
+                  {selectedDiagnostico.empleado_nombre}
+                </p>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertCircle className="text-orange-600" size={20} />
+                  <h4 className="font-semibold text-gray-900">Problema Reportado</h4>
+                </div>
+                <p className="text-lg text-gray-700">
+                  {selectedDiagnostico.tipo_problema}
+                </p>
+              </div>
+            </div>
+
+            {/* Información de Ingreso */}
+            {selectedDiagnostico.ya_ingreso && selectedDiagnostico.ingreso_hora && (
+              <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle className="text-green-600" size={20} />
+                  <h4 className="font-semibold text-gray-900">Registro de Ingreso</h4>
+                </div>
+                <p className="text-gray-700">
+                  <strong>Hora de ingreso:</strong> {selectedDiagnostico.ingreso_hora}
+                </p>
+              </div>
+            )}
+
+            {/* Comentarios */}
+            {selectedDiagnostico.solicitud?.comentarios && (
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText className="text-blue-600" size={20} />
+                  <h4 className="font-semibold text-gray-900">Comentarios del Chofer</h4>
+                </div>
+                <p className="text-gray-700 whitespace-pre-wrap">
+                  {selectedDiagnostico.solicitud.comentarios}
+                </p>
+              </div>
+            )}
+
+            {/* Fotos */}
+            {selectedDiagnostico.solicitud?.fotos && selectedDiagnostico.solicitud.fotos.length > 0 && (
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-semibold text-gray-900 mb-3">Fotos Adjuntas</h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {selectedDiagnostico.solicitud.fotos.map((foto: string, index: number) => (
+                    <div key={index} className="relative aspect-square">
+                      <img
+                        src={foto}
+                        alt={`Foto ${index + 1}`}
+                        className="w-full h-full object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => window.open(foto, '_blank')}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Haz clic en una imagen para verla en tamaño completo
+                </p>
+              </div>
+            )}
+
+            {/* Botón de Cerrar */}
+            <div className="flex justify-end pt-4 border-t">
+              <button
+                onClick={() => {
+                  setViewOnlyModal(false);
+                  setSelectedDiagnostico(null);
+                }}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Cerrar
               </button>
             </div>
           </div>

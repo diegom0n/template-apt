@@ -81,7 +81,7 @@ export interface OrdenTrabajo {
   fecha_inicio_ot: string;
   fecha_cierre_ot: string | null;
   descripcion_ot: string | null;
-  estado_ot: 'pendiente' | 'en curso' | 'finalizada' | 'en_diagnostico_programado';
+  estado_ot: 'pendiente' | 'en curso' | 'en_reparacion' | 'finalizada' | 'en_diagnostico_programado';
   empleado_id: number;
   vehiculo_id: number;
   created_at: string;

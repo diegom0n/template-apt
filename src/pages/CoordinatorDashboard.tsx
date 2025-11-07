@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Clock, Calendar, Truck, User, AlertCircle, FileText } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Calendar, Truck, User, AlertCircle, FileText, ClipboardList, Activity, BarChart3, Settings } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { SolicitudDiagnostico } from '../types/database';
 import Modal from '../components/Modal';
@@ -22,7 +22,12 @@ const BLOQUES_HORARIO_SAB = [
   '11:00 - 13:00',
 ];
 
-export default function CoordinatorDashboard() {
+interface CoordinatorDashboardProps {
+  activeSection?: 'agenda' | 'solicitudes' | 'emergencias' | 'ordenes' | 'vehiculos' | 'reportes';
+}
+
+export default function CoordinatorDashboard({ activeSection = 'solicitudes' }: CoordinatorDashboardProps) {
+  // Estados para Solicitudes
   const [solicitudes, setSolicitudes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSolicitud, setSelectedSolicitud] = useState<SolicitudDiagnostico | null>(null);
@@ -30,6 +35,30 @@ export default function CoordinatorDashboard() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Estados para Vehículos
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [vehicleStats, setVehicleStats] = useState({
+    enRuta: 0,
+    enTaller: 0,
+    enEspera: 0,
+    fueraServicio: 0
+  });
+
+  // Estados para Órdenes de Trabajo
+  const [workOrders, setWorkOrders] = useState<any[]>([]);
+  const [orderStats, setOrderStats] = useState({
+    programadas: 0,
+    enDiagnostico: 0,
+    enReparacion: 0,
+    retrasadas: 0
+  });
+
+  // Estados para Agenda/Calendario
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [agendaItems, setAgendaItems] = useState<any[]>([]);
+  const [selectedDayAppointments, setSelectedDayAppointments] = useState<any[]>([]);
 
   const hasEnv = Boolean(import.meta.env.VITE_SUPABASE_URL) && Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY);
 
@@ -63,8 +92,16 @@ export default function CoordinatorDashboard() {
   });
 
   useEffect(() => {
-    loadSolicitudes();
-  }, []);
+    if (activeSection === 'solicitudes') {
+      loadSolicitudes();
+    } else if (activeSection === 'vehiculos') {
+      loadVehicles();
+    } else if (activeSection === 'ordenes') {
+      loadWorkOrders();
+    } else if (activeSection === 'agenda') {
+      loadAgenda();
+    }
+  }, [activeSection]);
 
 
   const loadSolicitudes = async () => {
@@ -506,6 +543,252 @@ export default function CoordinatorDashboard() {
     return `${days[date.getDay()]} ${date.getDate()} de ${months[date.getMonth()]}`;
   };
 
+  // Función para cargar agenda (solicitudes confirmadas y órdenes de trabajo)
+  const loadAgenda = async () => {
+    try {
+      setLoading(true);
+      let agendaData: any[] = [];
+
+      // Cargar solicitudes confirmadas
+      const solicitudesLocal = readLocal('apt_solicitudes_diagnostico', []);
+      const empleadosLocal = readLocal('apt_empleados', []);
+      const ordenesLocal = readLocal('apt_ordenes_trabajo', []);
+      const vehiculosLocal = readLocal('apt_vehiculos', []);
+
+      // Filtrar solicitudes confirmadas con fecha confirmada
+      const solicitudesConfirmadas = solicitudesLocal.filter((s: any) => 
+        s.estado_solicitud === 'confirmada' && s.fecha_confirmada
+      );
+
+      // Enriquecer con información de empleado, vehículo y orden de trabajo
+      const itemsEnriquecidos = solicitudesConfirmadas.map((solicitud: any) => {
+        const empleado = empleadosLocal.find((e: any) => e.id_empleado === solicitud.empleado_id);
+        const vehiculo = vehiculosLocal.find((v: any) => v.id_vehiculo === solicitud.vehiculo_id);
+        const orden = ordenesLocal.find((o: any) => o.solicitud_diagnostico_id === solicitud.id_solicitud_diagnostico);
+
+        return {
+          id: solicitud.id_solicitud_diagnostico,
+          fecha: solicitud.fecha_confirmada,
+          bloque_horario: solicitud.bloque_horario_confirmado || solicitud.bloque_horario,
+          patente: solicitud.patente_vehiculo || vehiculo?.patente_vehiculo || 'N/A',
+          chofer: empleado ? `${empleado.nombre} ${empleado.apellido_paterno}` : 'N/A',
+          mecanico: orden?.mecanico_id ? `Mecánico #${orden.mecanico_id}` : 'Sin asignar',
+          tipo_problema: solicitud.tipo_problema,
+          prioridad: solicitud.prioridad,
+          estado: orden?.estado_ot || 'confirmada',
+          orden_id: orden?.id_orden_trabajo,
+        };
+      });
+
+      setAgendaItems(itemsEnriquecidos);
+      console.log('📅 Items de agenda cargados:', itemsEnriquecidos.length);
+    } catch (error) {
+      console.error('Error loading agenda:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Funciones auxiliares para el calendario
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    
+    return { daysInMonth, startingDayOfWeek };
+  };
+
+  const getAppointmentsForDate = (date: Date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    return agendaItems.filter((item: any) => item.fecha === dateStr);
+  };
+
+  const handleDateClick = (day: number) => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const clickedDate = new Date(year, month, day);
+    setSelectedDate(clickedDate);
+    
+    const appointments = getAppointmentsForDate(clickedDate);
+    setSelectedDayAppointments(appointments);
+  };
+
+  const previousMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+  };
+
+  const nextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+  };
+
+  const isToday = (day: number) => {
+    const today = new Date();
+    return day === today.getDate() && 
+           currentMonth.getMonth() === today.getMonth() && 
+           currentMonth.getFullYear() === today.getFullYear();
+  };
+
+  const hasAppointments = (day: number) => {
+    const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+    return getAppointmentsForDate(date).length > 0;
+  };
+
+  // Función para cargar vehículos
+  const loadVehicles = async () => {
+    try {
+      setLoading(true);
+      let vehiclesData: any[] = [];
+
+      if (hasEnv) {
+        try {
+          const { data, error } = await supabase
+            .from('vehiculo')
+            .select(`
+              *,
+              modelo:modelo_vehiculo_id(nombre_modelo, marca:marca_vehiculo_id(nombre_marca)),
+              tipo:tipo_vehiculo_id(tipo_vehiculo),
+              sucursal:sucursal_id(nombre_sucursal)
+            `)
+            .order('patente_vehiculo', { ascending: true });
+          
+          if (!error && data) {
+            vehiclesData = data;
+          }
+        } catch (err) {
+          console.log('Error cargando desde Supabase, usando localStorage');
+        }
+      }
+
+      // Cargar de localStorage
+      const vehiculosLocal = readLocal('apt_vehiculos', []);
+      const modelosLocal = readLocal('apt_modelos', []);
+      const marcasLocal = readLocal('apt_marcas', []);
+      const tiposLocal = readLocal('apt_tipos', []);
+      const sucursalesLocal = readLocal('apt_sucursales', []);
+
+      // Enriquecer vehículos locales
+      const vehiculosEnriquecidos = vehiculosLocal.map((v: any) => {
+        const modelo = modelosLocal.find((m: any) => m.id_modelo_vehiculo === v.modelo_vehiculo_id);
+        const marca = marcasLocal.find((ma: any) => ma.id_marca_vehiculo === modelo?.marca_vehiculo_id);
+        const tipo = tiposLocal.find((t: any) => t.id_tipo_vehiculo === v.tipo_vehiculo_id);
+        const sucursal = sucursalesLocal.find((s: any) => s.id_sucursal === v.sucursal_id);
+
+        return {
+          ...v,
+          modelo: modelo ? { ...modelo, marca: marca } : null,
+          tipo: tipo,
+          sucursal: sucursal,
+        };
+      });
+
+      const allVehicles = [...vehiclesData, ...vehiculosEnriquecidos];
+      const uniqueVehicles = allVehicles.filter((v, index, self) => 
+        index === self.findIndex((t) => t.id_vehiculo === v.id_vehiculo)
+      );
+
+      setVehicles(uniqueVehicles);
+
+      // Calcular estadísticas
+      const stats = {
+        enRuta: uniqueVehicles.filter((v: any) => v.estado_vehiculo === 'en_ruta').length,
+        enTaller: uniqueVehicles.filter((v: any) => v.estado_vehiculo === 'en_taller').length,
+        enEspera: uniqueVehicles.filter((v: any) => v.estado_vehiculo === 'disponible').length,
+        fueraServicio: uniqueVehicles.filter((v: any) => v.estado_vehiculo === 'fuera_de_servicio').length,
+      };
+      setVehicleStats(stats);
+    } catch (error) {
+      console.error('Error loading vehicles:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función para cargar órdenes de trabajo
+  const loadWorkOrders = async () => {
+    try {
+      setLoading(true);
+      let ordersData: any[] = [];
+
+      if (hasEnv) {
+        try {
+          const { data, error } = await supabase
+            .from('orden_trabajo')
+            .select(`
+              *,
+              empleado:empleado_id(nombre, apellido_paterno),
+              vehiculo:vehiculo_id(patente_vehiculo)
+            `)
+            .order('fecha_inicio_ot', { ascending: false });
+          
+          if (!error && data) {
+            ordersData = data;
+          }
+        } catch (err) {
+          console.log('Error cargando desde Supabase, usando localStorage');
+        }
+      }
+
+      // Cargar de localStorage
+      const ordenesLocal = readLocal('apt_ordenes_trabajo', []);
+      const empleadosLocal = readLocal('apt_empleados', []);
+      const vehiculosLocal = readLocal('apt_vehiculos', []);
+
+      // Enriquecer órdenes locales
+      const ordenesEnriquecidas = ordenesLocal.map((o: any) => {
+        const empleado = empleadosLocal.find((e: any) => e.id_empleado === o.empleado_id);
+        const vehiculo = vehiculosLocal.find((v: any) => v.id_vehiculo === o.vehiculo_id);
+
+        return {
+          ...o,
+          empleado: empleado,
+          vehiculo: vehiculo,
+          // Si no hay vehiculo_id pero sí patente_vehiculo, crear un objeto virtual
+          ...(o.patente_vehiculo && !vehiculo ? {
+            vehiculo: {
+              patente_vehiculo: o.patente_vehiculo
+            }
+          } : {})
+        };
+      });
+
+      const allOrders = [...ordersData, ...ordenesEnriquecidas];
+      const uniqueOrders = allOrders.filter((o, index, self) => 
+        index === self.findIndex((t) => t.id_orden_trabajo === o.id_orden_trabajo)
+      );
+
+      // Ordenar por fecha de creación (más recientes primero)
+      const ordenesOrdenadas = uniqueOrders.sort((a, b) => {
+        const fechaA = new Date(a.created_at || a.fecha_inicio_ot || 0).getTime();
+        const fechaB = new Date(b.created_at || b.fecha_inicio_ot || 0).getTime();
+        return fechaB - fechaA; // Descendente: más nuevas primero
+      });
+
+      setWorkOrders(ordenesOrdenadas);
+
+      // Calcular estadísticas
+      const today = new Date();
+      const stats = {
+        programadas: uniqueOrders.filter((o: any) => o.estado_ot === 'en_diagnostico_programado' || o.estado_ot === 'pendiente').length,
+        enDiagnostico: uniqueOrders.filter((o: any) => o.estado_ot === 'en curso').length,
+        enReparacion: uniqueOrders.filter((o: any) => o.estado_ot === 'en curso').length,
+        retrasadas: uniqueOrders.filter((o: any) => {
+          if (!o.fecha_inicio_ot) return false;
+          const fechaInicio = new Date(o.fecha_inicio_ot);
+          const diffDays = (today.getTime() - fechaInicio.getTime()) / (1000 * 3600 * 24);
+          return diffDays > 7 && o.estado_ot !== 'finalizada';
+        }).length,
+      };
+      setOrderStats(stats);
+    } catch (error) {
+      console.error('Error loading work orders:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -516,14 +799,6 @@ export default function CoordinatorDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Bandeja de Solicitudes</h1>
-        <p className="text-gray-600">
-          Revisa y gestiona las solicitudes de diagnóstico de los choferes.
-        </p>
-      </div>
-
-
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
           <CheckCircle className="text-green-600" size={24} />
@@ -538,7 +813,213 @@ export default function CoordinatorDashboard() {
         </div>
       )}
 
-      {/* Contenido de solicitudes pendientes */}
+      {/* Contenido de Agenda del Taller */}
+      {activeSection === 'agenda' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Agenda del Taller</h1>
+          <p className="text-gray-600 mb-6">Selecciona un día para ver los diagnósticos y reparaciones programadas.</p>
+          
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Calendario */}
+            <div className="lg:col-span-2">
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                {/* Header del calendario */}
+                <div className="flex items-center justify-between mb-4">
+                  <button
+                    onClick={previousMonth}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    ←
+                  </button>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                  </h2>
+                  <button
+                    onClick={nextMonth}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    →
+                  </button>
+                </div>
+
+                {/* Días de la semana */}
+                <div className="grid grid-cols-7 gap-1 mb-2">
+                  {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((day) => (
+                    <div key={day} className="text-center text-sm font-medium text-gray-600 py-2">
+                      {day}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Días del mes */}
+                <div className="grid grid-cols-7 gap-1">
+                  {(() => {
+                    const { daysInMonth, startingDayOfWeek } = getDaysInMonth(currentMonth);
+                    const days = [];
+                    
+                    // Espacios vacíos antes del primer día
+                    for (let i = 0; i < startingDayOfWeek; i++) {
+                      days.push(
+                        <div key={`empty-${i}`} className="aspect-square p-2"></div>
+                      );
+                    }
+                    
+                    // Días del mes
+                    for (let day = 1; day <= daysInMonth; day++) {
+                      const hasAppts = hasAppointments(day);
+                      const isTodayDay = isToday(day);
+                      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+                      const isSelected = selectedDate && 
+                        date.getDate() === selectedDate.getDate() &&
+                        date.getMonth() === selectedDate.getMonth() &&
+                        date.getFullYear() === selectedDate.getFullYear();
+                      
+                      days.push(
+                        <button
+                          key={day}
+                          onClick={() => handleDateClick(day)}
+                          className={`aspect-square p-2 text-center rounded-lg transition-colors relative
+                            ${isSelected ? 'bg-blue-600 text-white font-bold' :
+                              isTodayDay ? 'bg-blue-100 text-blue-900 font-semibold' :
+                              hasAppts ? 'bg-green-50 text-gray-900 hover:bg-green-100' :
+                              'text-gray-700 hover:bg-gray-100'}
+                          `}
+                        >
+                          <span className="text-sm">{day}</span>
+                          {hasAppts && !isSelected && (
+                            <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2">
+                              <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    }
+                    
+                    return days;
+                  })()}
+                </div>
+
+                {/* Leyenda */}
+                <div className="mt-4 pt-4 border-t border-gray-200 flex gap-4 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-blue-100 rounded"></div>
+                    <span className="text-gray-600">Hoy</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-green-50 border border-green-200 rounded"></div>
+                    <span className="text-gray-600">Con citas</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-blue-600 rounded"></div>
+                    <span className="text-gray-600">Seleccionado</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Panel de detalles del día seleccionado */}
+            <div className="lg:col-span-1">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 sticky top-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  {selectedDate 
+                    ? `Citas del ${selectedDate.getDate()}/${selectedDate.getMonth() + 1}` 
+                    : 'Selecciona un día'}
+                </h3>
+                
+                {selectedDate ? (
+                  selectedDayAppointments.length > 0 ? (
+                    <div className="space-y-3">
+                      {selectedDayAppointments.map((appt) => (
+                        <div key={appt.id} className="bg-white border border-gray-200 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Clock size={16} className="text-blue-600" />
+                            <span className="text-sm font-semibold text-gray-900">{appt.bloque_horario}</span>
+                            {appt.prioridad === 'urgente' && (
+                              <span className="px-2 py-0.5 bg-red-100 text-red-800 text-xs font-semibold rounded">
+                                URGENTE
+                              </span>
+                            )}
+                          </div>
+                          <div className="space-y-1 text-xs text-gray-600">
+                            <div className="flex items-center gap-1">
+                              <Truck size={14} className="text-gray-400" />
+                              <strong>Patente:</strong> {appt.patente}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <User size={14} className="text-gray-400" />
+                              <strong>Chofer:</strong> {appt.chofer}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <User size={14} className="text-gray-400" />
+                              <strong>Mecánico:</strong> {appt.mecanico}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <AlertCircle size={14} className="text-gray-400" />
+                              <strong>Problema:</strong> {appt.tipo_problema}
+                            </div>
+                            {appt.orden_id && (
+                              <div className="mt-2 pt-2 border-t border-gray-100">
+                                <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
+                                  appt.estado === 'en_diagnostico_programado' ? 'bg-blue-100 text-blue-800' :
+                                  appt.estado === 'en curso' ? 'bg-yellow-100 text-yellow-800' :
+                                  appt.estado === 'finalizada' ? 'bg-green-100 text-green-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  OT #{appt.orden_id} - {appt.estado === 'en_diagnostico_programado' ? 'Programada' : 
+                                                         appt.estado === 'en curso' ? 'En Curso' : 
+                                                         appt.estado === 'finalizada' ? 'Finalizada' : appt.estado}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <Calendar className="mx-auto text-gray-300 mb-3" size={40} />
+                      <p className="text-sm text-gray-500">No hay citas programadas para este día</p>
+                    </div>
+                  )
+                ) : (
+                  <div className="text-center py-8">
+                    <Calendar className="mx-auto text-gray-300 mb-3" size={40} />
+                    <p className="text-sm text-gray-500">Haz clic en un día del calendario para ver las citas</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Resumen de citas totales */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="text-2xl font-bold text-blue-600 mb-1">{agendaItems.length}</div>
+              <div className="text-sm text-gray-600">Total de Citas Programadas</div>
+            </div>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="text-2xl font-bold text-green-600 mb-1">
+                {agendaItems.filter(a => a.estado === 'en curso').length}
+              </div>
+              <div className="text-sm text-gray-600">En Diagnóstico Actualmente</div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="text-2xl font-bold text-red-600 mb-1">
+                {agendaItems.filter(a => a.prioridad === 'urgente').length}
+              </div>
+              <div className="text-sm text-gray-600">Citas Urgentes</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contenido de Solicitudes de Diagnóstico */}
+      {activeSection === 'solicitudes' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Solicitudes de Diagnóstico / Reparación</h1>
+          <p className="text-gray-600 mb-6">Listado de solicitudes de choferes, con opción de aprobar/reprogramar.</p>
+          
+          {/* Contenido de solicitudes pendientes */}
       {solicitudes.length === 0 ? (
         <div className="bg-white rounded-lg shadow-md p-8 text-center">
           <FileText className="mx-auto text-gray-400 mb-4" size={48} />
@@ -639,6 +1120,223 @@ export default function CoordinatorDashboard() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+        </div>
+      )}
+
+      {/* Contenido de Emergencias en Ruta */}
+      {activeSection === 'emergencias' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Emergencias en Ruta</h1>
+          <p className="text-gray-600 mb-6">Casos críticos con estado: en revisión, en atención, resueltos.</p>
+          
+          <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center">
+            <AlertCircle className="mx-auto text-red-400 mb-4" size={48} />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No hay emergencias activas</h3>
+            <p className="text-gray-600">
+              Aquí aparecerán las emergencias reportadas en ruta que requieran atención inmediata.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Contenido de Órdenes de Trabajo en Curso */}
+      {activeSection === 'ordenes' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Órdenes de Trabajo en Curso</h1>
+          <p className="text-gray-600 mb-6">OT por estado: programada, en diagnóstico, en reparación, retrasada.</p>
+              
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-blue-600 mb-1">{orderStats.programadas}</div>
+              <div className="text-sm text-gray-600">Programadas</div>
+            </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-yellow-600 mb-1">{orderStats.enDiagnostico}</div>
+              <div className="text-sm text-gray-600">En Diagnóstico</div>
+            </div>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-green-600 mb-1">{orderStats.enReparacion}</div>
+              <div className="text-sm text-gray-600">En Reparación</div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-red-600 mb-1">{orderStats.retrasadas}</div>
+              <div className="text-sm text-gray-600">Retrasadas</div>
+            </div>
+          </div>
+              
+          {workOrders.length === 0 ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+              <Settings className="mx-auto text-gray-400 mb-4" size={48} />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No hay órdenes de trabajo en curso</h3>
+              <p className="text-gray-600">
+                Aquí aparecerán todas las órdenes de trabajo activas del taller.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {workOrders.map((order) => (
+                <div key={order.id_orden_trabajo} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="font-semibold text-lg">OT #{order.id_orden_trabajo}</span>
+                        <span className={`px-2 py-1 text-xs font-semibold rounded ${
+                          order.estado_ot === 'pendiente' ? 'bg-yellow-100 text-yellow-800' :
+                          order.estado_ot === 'en curso' || order.estado_ot === 'en_diagnostico_programado' ? 'bg-blue-100 text-blue-800' :
+                          order.estado_ot === 'finalizada' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {order.estado_ot === 'en_diagnostico_programado' ? 'Programada' :
+                           order.estado_ot === 'en curso' ? 'En Curso' :
+                           order.estado_ot === 'finalizada' ? 'Finalizada' :
+                           order.estado_ot}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                        <div><strong>Vehículo:</strong> {order.patente_vehiculo || order.vehiculo?.patente_vehiculo || 'N/A'}</div>
+                        <div><strong>Empleado:</strong> {order.empleado?.nombre ? `${order.empleado.nombre} ${order.empleado.apellido_paterno || ''}` : 'N/A'}</div>
+                        <div><strong>Fecha inicio:</strong> {order.fecha_inicio_ot ? new Date(order.fecha_inicio_ot).toLocaleDateString('es-ES') : 'N/A'}</div>
+                        <div><strong>Fecha cierre:</strong> {order.fecha_cierre_ot ? new Date(order.fecha_cierre_ot).toLocaleDateString('es-ES') : 'Pendiente'}</div>
+                      </div>
+                      {order.descripcion_ot && (
+                        <p className="mt-2 text-sm text-gray-700">{order.descripcion_ot}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Contenido de Estado de Vehículos */}
+      {activeSection === 'vehiculos' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Estado de Vehículos</h1>
+          <p className="text-gray-600 mb-6">Vehículos por estado: en ruta, en taller, disponibles, fuera de servicio.</p>
+              
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-green-600 mb-1">{vehicleStats.enRuta}</div>
+              <div className="text-sm text-gray-600">En Ruta</div>
+            </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-yellow-600 mb-1">{vehicleStats.enTaller}</div>
+              <div className="text-sm text-gray-600">En Taller</div>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-blue-600 mb-1">{vehicleStats.enEspera}</div>
+              <div className="text-sm text-gray-600">Disponibles</div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+              <div className="text-3xl font-bold text-red-600 mb-1">{vehicleStats.fueraServicio}</div>
+              <div className="text-sm text-gray-600">Fuera de Servicio</div>
+            </div>
+          </div>
+              
+          {vehicles.length === 0 ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+              <Truck className="mx-auto text-gray-400 mb-4" size={48} />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No hay información de vehículos disponible</h3>
+              <p className="text-gray-600">
+                Aquí podrás ver el estado de todos los vehículos de la flota.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Patente</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Marca/Modelo</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kilometraje</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sucursal</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {vehicles.map((vehicle) => (
+                    <tr key={vehicle.id_vehiculo} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {vehicle.patente_vehiculo}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {vehicle.modelo?.marca?.nombre_marca || 'N/A'} {vehicle.modelo?.nombre_modelo || ''}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {vehicle.tipo?.tipo_vehiculo || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          vehicle.estado_vehiculo === 'disponible' ? 'bg-green-100 text-green-800' :
+                          vehicle.estado_vehiculo === 'en_ruta' ? 'bg-blue-100 text-blue-800' :
+                          vehicle.estado_vehiculo === 'en_taller' ? 'bg-yellow-100 text-yellow-800' :
+                          vehicle.estado_vehiculo === 'fuera_de_servicio' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {vehicle.estado_vehiculo === 'disponible' ? 'Disponible' :
+                           vehicle.estado_vehiculo === 'en_ruta' ? 'En Ruta' :
+                           vehicle.estado_vehiculo === 'en_taller' ? 'En Taller' :
+                           vehicle.estado_vehiculo === 'fuera_de_servicio' ? 'Fuera de Servicio' :
+                           vehicle.estado_vehiculo}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {vehicle.kilometraje_vehiculo ? `${vehicle.kilometraje_vehiculo.toLocaleString()} km` : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {vehicle.sucursal?.nombre_sucursal || 'N/A'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Contenido de Reportes Operativos */}
+      {activeSection === 'reportes' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Reportes Operativos</h1>
+          <p className="text-gray-600 mb-6">Tiempos de respuesta, cantidad de asistencias en ruta, vehículos inactivos.</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Clock className="text-blue-600" size={24} />
+                    <div className="text-sm font-medium text-gray-700">Tiempo Promedio de Respuesta</div>
+                  </div>
+                  <div className="text-2xl font-bold text-blue-600">-- horas</div>
+                </div>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Activity className="text-green-600" size={24} />
+                    <div className="text-sm font-medium text-gray-700">Asistencias en Ruta (Este Mes)</div>
+                  </div>
+                  <div className="text-2xl font-bold text-green-600">0</div>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Truck className="text-red-600" size={24} />
+                    <div className="text-sm font-medium text-gray-700">Vehículos Inactivos</div>
+                  </div>
+                  <div className="text-2xl font-bold text-red-600">0</div>
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+                <BarChart3 className="mx-auto text-gray-400 mb-4" size={48} />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Reportes en desarrollo</h3>
+                <p className="text-gray-600">
+                  Aquí podrás visualizar estadísticas detalladas sobre el rendimiento operativo del taller.
+                </p>
+              </div>
         </div>
       )}
 
