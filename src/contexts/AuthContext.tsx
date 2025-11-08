@@ -24,6 +24,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
+    const normalizedUsername = (username || '').trim();
+    const normalizedPassword = (password || '').trim();
+    const usernameLower = normalizedUsername.toLowerCase();
+
     // Fallback de demo si no hay BD configurada o la consulta falla
     const demoUsers: Record<string, Omit<Usuario, 'id_usuario' | 'created_at' | 'ultima_conexion'>> = {
       admin: { usuario: 'admin', clave: 'admin123', rol: 'admin', estado_usuario: true },
@@ -48,13 +52,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log('👥 Empleados en localStorage:', empleadosLS);
       
       // Buscar por nombre de usuario
-      let foundLS = usuariosLS.find((u: any) => u.usuario === username && u.clave === password && u.estado_usuario);
+      let foundLS = usuariosLS.find(
+        (u: any) =>
+          u.estado_usuario &&
+          typeof u.usuario === 'string' &&
+          u.usuario.toLowerCase() === usernameLower &&
+          u.clave === normalizedPassword
+      );
       console.log('🔍 Búsqueda por username:', { username, password, foundLS: !!foundLS });
       
       // Si no se encuentra por username, buscar por RUT en los empleados
       if (!foundLS) {
         console.log('🔍 Buscando por RUT:', username);
-        const rutNormalizado = username.replace(/[.\-]/g, '');
+        const rutNormalizado = normalizedUsername.replace(/[.\-]/g, '');
         console.log('🔍 RUT normalizado:', rutNormalizado);
         
         const empleadoPorRut = empleadosLS.find((e: any) => {
@@ -71,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Buscar el usuario asociado a este empleado
           foundLS = usuariosLS.find((u: any) => {
             const coincideId = u.id_usuario === empleadoPorRut.usuario_id;
-            const coincideClave = u.clave === password;
+            const coincideClave = u.clave === normalizedPassword;
             const estaActivo = u.estado_usuario;
             console.log(`Usuario ${u.usuario}: id=${coincideId}, clave=${coincideClave}, activo=${estaActivo}`);
             return coincideId && coincideClave && estaActivo;
@@ -100,7 +110,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Si no está en localStorage, buscar en usuarios demo
       console.log('🔍 Buscando en usuarios demo...');
-      const found = Object.values(demoUsers).find(u => u.usuario === username && u.clave === password && u.estado_usuario);
+      const found = Object.values(demoUsers).find(
+        (u) =>
+          u.estado_usuario &&
+          u.usuario.toLowerCase() === usernameLower &&
+          u.clave === normalizedPassword
+      );
       console.log('🔍 Usuario demo encontrado:', found);
       if (!found) {
         console.error('❌ Credenciales inválidas');
@@ -125,8 +140,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from('usuario')
         .select('*')
-        .eq('usuario', username)
-        .eq('clave', password)
+        .eq('usuario', normalizedUsername)
+        .eq('clave', normalizedPassword)
         .eq('estado_usuario', true)
         .maybeSingle();
 
@@ -144,7 +159,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       // Si la BD está inaccesible, intentar con usuarios de localStorage
       const usuariosLS = JSON.parse(localStorage.getItem('apt_usuarios') || '[]');
-      const foundLS = usuariosLS.find((u: any) => u.usuario === username && u.clave === password && u.estado_usuario);
+      const foundLS = usuariosLS.find(
+        (u: any) =>
+          u.estado_usuario &&
+          typeof u.usuario === 'string' &&
+          u.usuario.toLowerCase() === usernameLower &&
+          u.clave === normalizedPassword
+      );
       
       if (foundLS) {
         const localUser: Usuario = {
@@ -162,7 +183,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Si tampoco está en localStorage, intentar con usuarios demo
-      const found = Object.values(demoUsers).find(u => u.usuario === username && u.clave === password && u.estado_usuario);
+      const found = Object.values(demoUsers).find(
+        (u) =>
+          u.estado_usuario &&
+          u.usuario.toLowerCase() === usernameLower &&
+          u.clave === normalizedPassword
+      );
       if (!found) throw err as Error;
       const demoUser: Usuario = {
         id_usuario: -1,

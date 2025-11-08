@@ -276,3 +276,4 @@ export default function SupervisorDashboard({ activeSection = 'tablero' }: Super
   );
 }
 
+

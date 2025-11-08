@@ -16,6 +16,7 @@ export default function WorkOrders() {
   const { user } = useAuth();
   const [workOrders, setWorkOrders] = useState<any[]>([]);
   const [allWorkOrders, setAllWorkOrders] = useState<any[]>([]);
+  const [driverHistory, setDriverHistory] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'todas' | 'diagnostico'>('todas');
   const [employees, setEmployees] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -246,6 +247,11 @@ export default function WorkOrders() {
       );
 
       setAllWorkOrders(uniqueOrders);
+      if (user?.rol === 'driver') {
+        setDriverHistory(buildDriverHistory(uniqueOrders));
+      } else {
+        setDriverHistory([]);
+      }
       
       // Cargar empleados y vehículos
       if (!hasEnv) {
@@ -262,6 +268,11 @@ export default function WorkOrders() {
       // Fallback a localStorage
       const localOrders = readLocal('apt_ordenes_trabajo', []);
       setAllWorkOrders(localOrders);
+      if (user?.rol === 'driver') {
+        setDriverHistory(buildDriverHistory(localOrders));
+      } else {
+        setDriverHistory([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -482,27 +493,22 @@ export default function WorkOrders() {
     },
   ];
 
-  const formatDate = (dateStr: string) => {
+  function formatDate(dateStr: string) {
     if (!dateStr) return 'N/A';
     try {
-      // Intentar parsear la fecha en diferentes formatos
       let date: Date;
       if (dateStr.includes('T')) {
-        // Si ya tiene formato ISO completo
         date = new Date(dateStr);
       } else if (dateStr.includes('-')) {
-        // Si es formato YYYY-MM-DD
-        date = new Date(dateStr + 'T00:00:00');
+        date = new Date(`${dateStr}T00:00:00`);
       } else {
-        // Intentar parsear directamente
         date = new Date(dateStr);
       }
-      
-      // Verificar que la fecha es válida
+
       if (isNaN(date.getTime())) {
         return 'N/A';
       }
-      
+
       const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
       const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
       return `${days[date.getDay()]} ${date.getDate()} de ${months[date.getMonth()]}`;
@@ -510,7 +516,190 @@ export default function WorkOrders() {
       console.error('Error formateando fecha:', dateStr, error);
       return 'N/A';
     }
-  };
+  }
+
+  function normalizeDate(value: any): string | null {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (isNaN(date.getTime())) return null;
+    return date.toISOString();
+  }
+
+  function formatDateTime(value?: any): string | null {
+    if (!value) return null;
+    const normalized = normalizeDate(value);
+    if (!normalized) return null;
+    const date = new Date(normalized);
+    return (
+      date.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) +
+      ' ' +
+      date.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+    );
+  }
+
+  function formatHour(value?: string | null): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes('T')) {
+      const date = new Date(trimmed);
+      if (!isNaN(date.getTime())) {
+        return date.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+      }
+    }
+    if (trimmed.includes(' ')) {
+      const parts = trimmed.split(' ');
+      return parts[parts.length - 1];
+    }
+    return trimmed;
+  }
+
+  function buildDriverTimeline(solicitud: any, ordenData: any, ordenLocal: any) {
+    const estadoSolicitud = (solicitud?.estado_solicitud || '').toLowerCase();
+    const estadoOrden = (ordenLocal?.estado_ot || ordenData?.estado_ot || '').toLowerCase();
+    const fechaInicio = normalizeDate(ordenLocal?.fecha_inicio_ot || ordenData?.fecha_inicio_ot || solicitud?.fecha_confirmada);
+    const fechaCierre = normalizeDate(ordenLocal?.fecha_cierre_ot || ordenData?.fecha_cierre_ot);
+
+    const steps = [
+      {
+        key: 'solicitud',
+        label: 'Solicitud enviada',
+        date: normalizeDate(solicitud?.created_at || ordenData?.created_at || ordenData?.fecha_inicio_ot),
+        reached: Boolean(solicitud || ordenData),
+      },
+      {
+        key: 'pendiente',
+        label: 'Pendiente de confirmación',
+        date: normalizeDate(solicitud?.created_at || ordenData?.created_at),
+        reached: Boolean(solicitud),
+      },
+      {
+        key: 'confirmada',
+        label: 'Hora confirmada',
+        date: normalizeDate(solicitud?.fecha_confirmada),
+        reached:
+          estadoSolicitud === 'confirmada' ||
+          ['en_diagnostico_programado', 'en curso', 'en_reparacion', 'finalizada'].includes(estadoOrden),
+      },
+      {
+        key: 'diagnostico',
+        label: 'Diagnóstico programado',
+        date: fechaInicio,
+        reached: ['en_diagnostico_programado', 'en curso', 'en_reparacion', 'finalizada'].includes(estadoOrden),
+      },
+      {
+        key: 'reparacion',
+        label: 'En reparación',
+        date: fechaInicio,
+        reached: ['en_reparacion', 'en curso', 'finalizada'].includes(estadoOrden),
+      },
+      {
+        key: 'finalizada',
+        label: 'Trabajo finalizado',
+        date: fechaCierre,
+        reached: estadoOrden === 'finalizada',
+      },
+      {
+        key: 'cierre',
+        label: 'Cierre técnico',
+        date: normalizeDate(ordenLocal?.fecha_cierre_tecnico),
+        reached: ordenLocal?.estado_cierre === 'cerrada',
+      },
+    ];
+
+    let lastReachedIndex = -1;
+    steps.forEach((step, idx) => {
+      if (step.reached) {
+        lastReachedIndex = idx;
+      }
+    });
+
+    return steps.map((step, idx) => {
+      const status: 'pending' | 'current' | 'complete' = !step.reached
+        ? 'pending'
+        : idx === lastReachedIndex
+        ? 'current'
+        : 'complete';
+      return {
+        ...step,
+        status,
+        formattedDate: formatDateTime(step.date),
+      };
+    });
+  }
+
+  function buildDriverHistory(orders: any[]): any[] {
+    const solicitudesLS = readLocal('apt_solicitudes_diagnostico', []);
+    const ordenesLS = readLocal('apt_ordenes_trabajo', []);
+
+    const history = orders.map((orden: any) => {
+      const solicitud = Array.isArray(solicitudesLS)
+        ? solicitudesLS.find((s: any) =>
+            s.orden_trabajo_id === orden.id_orden_trabajo ||
+            s.id_solicitud_diagnostico === orden.solicitud_diagnostico_id ||
+            (typeof orden.id_orden_trabajo === 'string' &&
+              orden.id_orden_trabajo.startsWith('solicitud-') &&
+              `solicitud-${s.id_solicitud_diagnostico}` === orden.id_orden_trabajo)
+          )
+        : null;
+
+      const ordenLocal = Array.isArray(ordenesLS)
+        ? ordenesLS.find((o: any) =>
+            o.id_orden_trabajo === orden.id_orden_trabajo ||
+            (orden.solicitud_diagnostico_id && o.solicitud_diagnostico_id === orden.solicitud_diagnostico_id) ||
+            (typeof orden.id_orden_trabajo === 'string' &&
+              orden.id_orden_trabajo.startsWith('solicitud-') &&
+              o.solicitud_diagnostico_id?.toString() === orden.id_orden_trabajo.replace('solicitud-', ''))
+          )
+        : null;
+
+      const timeline = buildDriverTimeline(solicitud, orden, ordenLocal);
+      const lastStep = [...timeline].reverse().find((step) => step.status !== 'pending');
+
+      const estadoActual = lastStep?.label || 'Solicitud registrada';
+      const estadoBadgeClass =
+        lastStep?.status === 'complete'
+          ? 'bg-green-100 text-green-700 border border-green-200'
+          : lastStep?.status === 'current'
+          ? 'bg-blue-100 text-blue-700 border border-blue-200'
+          : 'bg-gray-100 text-gray-500 border border-gray-200';
+
+      const fechaReferencia =
+        normalizeDate(
+          solicitud?.fecha_confirmada ||
+            solicitud?.fecha_solicitada ||
+            ordenLocal?.fecha_inicio_ot ||
+            orden.fecha_inicio_ot ||
+            orden.created_at
+        );
+
+      const rawHora =
+        solicitud?.bloque_horario_confirmado ||
+        solicitud?.bloque_horario ||
+        ordenLocal?.hora_confirmada ||
+        orden.hora_confirmada ||
+        orden.bloque_horario ||
+        null;
+
+      return {
+        id: orden.id_orden_trabajo,
+        patente: orden.patente_vehiculo || solicitud?.patente_vehiculo || ordenLocal?.patente_vehiculo || 'N/A',
+        problema: orden.tipo_problema || solicitud?.tipo_problema || ordenLocal?.tipo_problema || orden.descripcion_ot || 'N/A',
+        fecha: fechaReferencia,
+        fechaFormateada: fechaReferencia ? formatDate(fechaReferencia) : 'N/A',
+        hora: formatHour(typeof rawHora === 'string' ? rawHora : null),
+        timeline,
+        estadoActual,
+        estadoBadgeClass,
+      };
+    });
+
+    return history.sort((a, b) => {
+      const aDate = a.fecha ? new Date(a.fecha).getTime() : 0;
+      const bDate = b.fecha ? new Date(b.fecha).getTime() : 0;
+      return bDate - aDate;
+    });
+  }
 
   if (loading) {
     return <div className="text-center py-8">Cargando...</div>;
@@ -752,6 +941,77 @@ export default function WorkOrders() {
           </div>
         )}
       </div>
+
+      {user?.rol === 'driver' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Historial de mis horas tomadas</h2>
+              <p className="text-gray-600 text-sm">
+                Revisa cada cita solicitada y el estado en que se encuentra dentro del proceso de diagnóstico y reparación.
+              </p>
+            </div>
+          </div>
+
+          {driverHistory.length === 0 ? (
+            <div className="text-center py-10 text-gray-500">
+              <FileText className="mx-auto text-gray-300 mb-4" size={48} />
+              <p>No tienes horas agendadas todavía.</p>
+              <p className="text-sm">Cuando solicites una revisión aparecerá aquí su progreso.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {driverHistory.map((item) => (
+                <div key={item.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <Truck className="text-blue-600" size={20} />
+                        <span className="font-semibold text-gray-900 text-lg">{item.patente}</span>
+                        <span className={`px-3 py-1 text-xs font-semibold rounded ${item.estadoBadgeClass}`}>
+                          {item.estadoActual}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-sm text-gray-600 space-y-1">
+                        <div>
+                          <strong>Problema:</strong> {item.problema}
+                        </div>
+                        {item.fechaFormateada !== 'N/A' && (
+                          <div>
+                            <strong>Programado:</strong> {item.fechaFormateada}
+                            {item.hora && ` · ${item.hora}`}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="flex flex-wrap gap-3">
+                      {item.timeline.map((step: any) => {
+                        const statusClasses =
+                          step.status === 'complete'
+                            ? 'bg-green-50 border border-green-200 text-green-700'
+                            : step.status === 'current'
+                            ? 'bg-blue-50 border border-blue-200 text-blue-700'
+                            : 'bg-gray-50 border border-gray-200 text-gray-500';
+                        return (
+                          <div key={step.key} className={`min-w-[160px] px-3 py-2 rounded-lg ${statusClasses}`}>
+                            <div className="text-xs font-semibold uppercase tracking-wide">{step.label}</div>
+                            <div className="text-xs mt-1">
+                              {step.formattedDate || 'En proceso'}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {user?.rol !== 'driver' && (
         <Modal

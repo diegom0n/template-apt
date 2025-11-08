@@ -64,7 +64,24 @@ export default function ScheduleDiagnostic() {
   const writeLocal = (key: string, value: any) => {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      window.dispatchEvent(
+        new CustomEvent('apt-local-update', {
+          detail: { key },
+        })
+      );
     } catch {}
+  };
+
+  const appendDriverHistory = (entry: any) => {
+    const history = readLocal('apt_driver_history', []);
+    const sanitized = Array.isArray(history)
+      ? history.filter(
+          (item: any) =>
+            item.id !== entry.id &&
+            item.solicitud_diagnostico_id !== entry.solicitud_diagnostico_id
+        )
+      : [];
+    writeLocal('apt_driver_history', [entry, ...sanitized]);
   };
 
   const [formData, setFormData] = useState({
@@ -334,6 +351,7 @@ export default function ScheduleDiagnostic() {
 
       // Buscar o crear vehículo por patente
       let vehiculoId: number | null = null;
+      let storedSolicitud: any = null;
       
       if (hasEnv) {
         // Intentar obtener vehiculo_id si existe el vehículo
@@ -343,7 +361,6 @@ export default function ScheduleDiagnostic() {
           .eq('patente_vehiculo', patenteNormalizada)
           .maybeSingle();
         
-        // Si no existe, crear vehículo básico
         if (!vehiculo) {
           // Obtener valores por defecto
           const modelos = await supabase.from('modelo_vehiculo').select('id_modelo_vehiculo').limit(1).maybeSingle();
@@ -376,35 +393,78 @@ export default function ScheduleDiagnostic() {
         };
         delete (solicitudDB as any).patente_vehiculo;
 
-        const { error: dbError } = await supabase
+        const { data: insertedSolicitud, error: dbError } = await supabase
           .from('solicitud_diagnostico')
-          .insert([solicitudDB]);
-        
+          .insert([solicitudDB])
+          .select()
+          .single();
+
         if (dbError) {
           // Si falla, guardar localmente
+          const vehiculos = readLocal('apt_vehiculos', []);
+          let vehiculoExistente = vehiculos.find((v: any) => 
+            v.patente_vehiculo?.toUpperCase() === patenteNormalizada
+          );
+          
+          if (!vehiculoExistente) {
+            const modelos = readLocal('apt_modelos', []);
+            const tipos = readLocal('apt_tipos', []);
+            const sucursales = readLocal('apt_sucursales', []);
+
+            const nuevoVehiculo = {
+              id_vehiculo: Date.now(),
+              patente_vehiculo: patenteNormalizada,
+              estado_vehiculo: 'disponible',
+              modelo_vehiculo_id: modelos[0]?.id_modelo_vehiculo || -1,
+              tipo_vehiculo_id: tipos[0]?.id_tipo_vehiculo || -1,
+              sucursal_id: sucursales[0]?.id_sucursal || -1,
+              created_at: new Date().toISOString(),
+            };
+
+            vehiculos.push(nuevoVehiculo);
+            writeLocal('apt_vehiculos', vehiculos);
+            vehiculoId = nuevoVehiculo.id_vehiculo;
+            console.log('✅ Vehículo creado automáticamente en localStorage:', patenteNormalizada);
+          } else {
+            vehiculoId = vehiculoExistente.id_vehiculo;
+          }
+
           const solicitudes = readLocal('apt_solicitudes_diagnostico', []);
           const nuevaSolicitud = {
             id_solicitud_diagnostico: Date.now(),
             ...solicitud,
-            vehiculo_id: vehiculo?.id_vehiculo || null,
+            vehiculo_id: vehiculoId,
             created_at: new Date().toISOString(),
           };
-          writeLocal('apt_solicitudes_diagnostico', [nuevaSolicitud, ...solicitudes]);
+          const solicitudesActualizadas = [nuevaSolicitud, ...solicitudes];
+          writeLocal('apt_solicitudes_diagnostico', solicitudesActualizadas);
+          console.log('✅ Solicitud guardada localmente:', nuevaSolicitud);
+          console.log('📦 Total de solicitudes guardadas:', solicitudesActualizadas.length);
+          console.log('📦 Todas las solicitudes:', solicitudesActualizadas);
+          storedSolicitud = nuevaSolicitud;
+        } else if (insertedSolicitud) {
+          storedSolicitud = {
+            ...solicitud,
+            ...insertedSolicitud,
+            patente_vehiculo: patenteNormalizada,
+            bloque_horario_confirmado: insertedSolicitud.bloque_horario_confirmado || solicitud.bloque_horario,
+            fecha_confirmada: insertedSolicitud.fecha_confirmada || solicitud.fecha_solicitada,
+            empleado_id: insertedSolicitud.empleado_id || empleadoId,
+          };
         }
+
       } else {
         // Guardar localmente
-        // Primero verificar si existe el vehículo en localStorage
         const vehiculos = readLocal('apt_vehiculos', []);
-        let vehiculoExistente = vehiculos.find((v: any) => 
+        let vehiculoExistente = vehiculos.find((v: any) =>
           v.patente_vehiculo?.toUpperCase() === patenteNormalizada
         );
-        
-        // Si no existe, crear vehículo básico
+
         if (!vehiculoExistente) {
           const modelos = readLocal('apt_modelos', []);
           const tipos = readLocal('apt_tipos', []);
           const sucursales = readLocal('apt_sucursales', []);
-          
+
           const nuevoVehiculo = {
             id_vehiculo: Date.now(),
             patente_vehiculo: patenteNormalizada,
@@ -414,7 +474,7 @@ export default function ScheduleDiagnostic() {
             sucursal_id: sucursales[0]?.id_sucursal || -1,
             created_at: new Date().toISOString(),
           };
-          
+
           vehiculos.push(nuevoVehiculo);
           writeLocal('apt_vehiculos', vehiculos);
           vehiculoId = nuevoVehiculo.id_vehiculo;
@@ -422,7 +482,7 @@ export default function ScheduleDiagnostic() {
         } else {
           vehiculoId = vehiculoExistente.id_vehiculo;
         }
-        
+
         const solicitudes = readLocal('apt_solicitudes_diagnostico', []);
         const nuevaSolicitud = {
           id_solicitud_diagnostico: Date.now(),
@@ -435,7 +495,29 @@ export default function ScheduleDiagnostic() {
         console.log('✅ Solicitud guardada localmente:', nuevaSolicitud);
         console.log('📦 Total de solicitudes guardadas:', solicitudesActualizadas.length);
         console.log('📦 Todas las solicitudes:', solicitudesActualizadas);
+        storedSolicitud = nuevaSolicitud;
       }
+
+      if (!storedSolicitud) {
+        storedSolicitud = {
+          id_solicitud_diagnostico: Date.now(),
+          ...solicitud,
+          vehiculo_id: vehiculoId,
+          created_at: new Date().toISOString(),
+        };
+      }
+
+      appendDriverHistory({
+        id: storedSolicitud.id_solicitud_diagnostico || Date.now(),
+        solicitud_diagnostico_id: storedSolicitud.id_solicitud_diagnostico || null,
+        patente_vehiculo: storedSolicitud.patente_vehiculo || patenteNormalizada,
+        tipo_problema: storedSolicitud.tipo_problema,
+        fecha_programada: storedSolicitud.fecha_confirmada || storedSolicitud.fecha_solicitada || formData.fecha_solicitada,
+        bloque_horario: storedSolicitud.bloque_horario_confirmado || storedSolicitud.bloque_horario || formData.bloque_horario,
+        estado_solicitud: storedSolicitud.estado_solicitud || 'pendiente_confirmacion',
+        empleado_id: storedSolicitud.empleado_id,
+        created_at: storedSolicitud.created_at || new Date().toISOString(),
+      });
 
       // Recargar solicitudes para actualizar disponibilidad
       await loadSolicitudes();

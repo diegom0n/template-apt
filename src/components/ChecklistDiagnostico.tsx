@@ -618,3 +618,4 @@ export default function ChecklistDiagnostico({ ordenTrabajo, onSave, onCancel, i
   );
 }
 
+

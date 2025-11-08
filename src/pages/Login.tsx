@@ -25,92 +25,116 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-8">
-        <div className="flex justify-center mb-6">
-          <div className="bg-blue-600 p-4 rounded-full">
-            <Truck size={32} className="text-white" />
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-5xl bg-white shadow-2xl rounded-3xl overflow-hidden flex flex-col md:flex-row">
+        <div className="relative md:w-1/2 bg-gradient-to-br from-blue-900 via-blue-800 to-blue-600 text-white px-10 py-12 flex flex-col gap-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/10 rounded-full p-3">
+              <Truck size={36} className="text-white" />
+            </div>
+            <div>
+              <p className="text-sm uppercase tracking-[0.4em] text-blue-100">Sistema</p>
+              <h2 className="text-2xl font-bold leading-tight">Gestión Taller PepsiCo</h2>
+            </div>
           </div>
-        </div>
 
-        <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
-          PEPSICO
-        </h1>
-        <p className="text-center text-gray-600 mb-8">
-          Asistente de Gestión de Taller
-        </p>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-              Usuario o RUT
-            </label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Ingrese su usuario o RUT"
-              required
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Puedes usar tu nombre de usuario o tu RUT
+          <div className="space-y-5">
+            <h1 className="text-4xl font-semibold leading-tight">Bienvenido al Asistente de Gestión de Taller</h1>
+            <p className="text-blue-100 text-lg">
+              Administra vehículos, agenda mantenimientos y gestiona tu taller con una experiencia moderna y segura.
             </p>
           </div>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-              Contraseña
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Ingrese su contraseña"
-              required
-            />
+          <div className="mt-auto text-sm text-blue-100/80">
+            <p className="font-semibold">Soporte disponible 24/7</p>
+            <p className="mt-1">¿Necesitas ayuda? Contacta a soporte@pepsico.com</p>
           </div>
 
-          {error && (
-            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
-          </button>
-        </form>
-
-        <div className="mt-8 pt-6 border-t border-gray-200">
-          <div className="mb-4 text-center">
-            <Link to="/" className="text-blue-600 hover:text-blue-700 text-sm font-medium mr-4">
-              ← Volver al inicio
-            </Link>
-            <Link to="/register" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
-              ¿Eres nuevo? Regístrate aquí
-            </Link>
+          <div className="absolute inset-x-0 bottom-5 px-10 hidden md:block">
+            <div className="h-px bg-white/20" />
+            <p className="text-xs text-blue-100/60 text-right mt-3">© 2025 PepsiCo, Inc. Todos los derechos reservados.</p>
           </div>
-          <p className="text-sm text-gray-600 mb-3 font-medium">Usuarios de prueba:</p>
-          <div className="space-y-2 text-xs text-gray-500">
-            <div className="flex justify-between">
-              <span>Administrador:</span>
-              <span className="font-mono">admin / admin123</span>
+        </div>
+
+        <div className="w-full md:w-1/2 px-8 sm:px-12 py-10 sm:py-12">
+          <div className="mb-8">
+            <p className="text-sm uppercase tracking-[0.3em] text-blue-600 font-semibold">Acceso seguro</p>
+            <h2 className="text-3xl font-bold text-slate-900 mt-2">Inicia sesión en tu cuenta</h2>
+            <p className="text-slate-500 mt-3 text-sm">
+              Ingresa tus credenciales corporativas para continuar gestionando las operaciones del taller.
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <label htmlFor="username" className="block text-sm font-semibold text-slate-700">
+                Usuario o RUT
+              </label>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                placeholder="Ej: 12.345.678-9"
+                required
+              />
+              <p className="text-xs text-slate-500">Puedes usar tu nombre de usuario o tu RUT.</p>
             </div>
-            <div className="flex justify-between">
-              <span>Planificador:</span>
-              <span className="font-mono">planner / planner123</span>
+
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-sm font-semibold text-slate-700">
+                Contraseña
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                placeholder="Ingresa tu contraseña"
+                required
+              />
             </div>
-            <div className="flex justify-between">
-              <span>Chofer:</span>
-              <span className="font-mono">driver1 / driver123</span>
+
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-blue-600 py-3 text-base font-semibold text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+            >
+              {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+            </button>
+          </form>
+
+          <div className="mt-10 space-y-4 text-sm text-slate-600">
+            <div>
+              <Link to="/" className="font-semibold text-blue-600 hover:text-blue-700">
+                ← Volver al inicio
+              </Link>
+            </div>
+
+            <div>
+              <p className="mb-2 font-semibold text-slate-700">Accesos de demostración:</p>
+              <div className="space-y-2 text-xs text-slate-500">
+                <div className="flex justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <span>Administrador</span>
+                  <span className="font-mono text-slate-700">admin / admin123</span>
+                </div>
+                <div className="flex justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <span>Planificador</span>
+                  <span className="font-mono text-slate-700">planner / planner123</span>
+                </div>
+                <div className="flex justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <span>Chofer</span>
+                  <span className="font-mono text-slate-700">driver1 / driver123</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

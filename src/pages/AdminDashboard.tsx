@@ -52,6 +52,150 @@ const ROLES = [
   },
 ];
 
+const ROLE_TO_CARGO_NAME: Record<string, string> = {
+  admin: 'Administrador',
+  planner: 'Coordinador',
+  jefe_taller: 'Jefe de Taller',
+  supervisor: 'Supervisor',
+  mechanic: 'Mecánico',
+  guard: 'Guardia',
+  driver: 'Chofer',
+};
+
+const ROLE_PROFILES: Record<
+  string,
+  {
+    titulo: string;
+    landing: string;
+    modulos: string[];
+    widgets: string[];
+  }
+> = {
+  admin: {
+    titulo: 'Administrador',
+    landing: 'admin-usuarios',
+    modulos: [
+      'admin-usuarios',
+      'admin-vehiculos',
+      'admin-roles',
+      'admin-catalogos',
+      'admin-agenda',
+      'admin-flota',
+      'admin-auditoria',
+    ],
+    widgets: ['dashboard', 'usuarios', 'vehiculos', 'auditoria'],
+  },
+  planner: {
+    titulo: 'Coordinador',
+    landing: 'coordinator-agenda',
+    modulos: [
+      'coordinator-agenda',
+      'coordinator-solicitudes',
+      'coordinator-emergencias',
+      'coordinator-ordenes',
+      'coordinator-vehiculos',
+      'coordinator-reportes',
+    ],
+    widgets: ['agenda', 'ordenes', 'inspecciones'],
+  },
+  supervisor: {
+    titulo: 'Supervisor',
+    landing: 'supervisor-tablero',
+    modulos: [
+      'supervisor-tablero',
+      'supervisor-diagnosticos',
+      'supervisor-asignaciones',
+      'supervisor-emergencias',
+      'supervisor-calidad',
+      'supervisor-indicadores',
+    ],
+    widgets: ['indicadores', 'ot-activa', 'calidad'],
+  },
+  mechanic: {
+    titulo: 'Mecánico',
+    landing: 'mechanic-assigned',
+    modulos: ['mechanic-assigned', 'mechanic-detail', 'mechanic-progress', 'mechanic-history'],
+    widgets: ['ot-asignadas', 'progreso'],
+  },
+  jefe_taller: {
+    titulo: 'Jefe de Taller',
+    landing: 'workshop-agenda',
+    modulos: [
+      'workshop-agenda',
+      'workshop-checklists',
+      'workshop-plan',
+      'workshop-asignacion',
+      'workshop-reparacion',
+      'workshop-cierre',
+      'workshop-carga',
+    ],
+    widgets: ['agenda', 'capacidad', 'reparaciones'],
+  },
+  guard: {
+    titulo: 'Guardia',
+    landing: 'gate-ingreso',
+    modulos: ['gate-ingreso', 'gate-salida', 'gate-sin-cita', 'gate-historial', 'gate-consulta'],
+    widgets: ['ingresos', 'alertas'],
+  },
+  driver: {
+    titulo: 'Chofer',
+    landing: 'schedule-diagnostic',
+    modulos: ['schedule-diagnostic'],
+    widgets: ['diagnosticos', 'vehiculos'],
+  },
+  default: {
+    titulo: 'Colaborador',
+    landing: 'dashboard',
+    modulos: ['dashboard'],
+    widgets: [],
+  },
+};
+
+const sanitizeString = (value: string) =>
+  value
+    ? value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toLowerCase()
+    : '';
+
+const capitalizeFirst = (value: string) =>
+  value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+
+const extractPrimaryToken = (value: string) => {
+  if (!value) return '';
+  const tokens = value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return tokens[0] || '';
+};
+
+const generateUniqueUsername = (base: string, existingUsernames: string[]) => {
+  const sanitizedBase = sanitizeString(base) || 'usuario';
+  const normalizedExisting = new Set(existingUsernames.map((u) => u.toLowerCase()));
+  if (!normalizedExisting.has(sanitizedBase)) {
+    return sanitizedBase;
+  }
+  let counter = 2;
+  let candidate = `${sanitizedBase}${counter}`;
+  while (normalizedExisting.has(candidate.toLowerCase())) {
+    counter += 1;
+    candidate = `${sanitizedBase}${counter}`;
+  }
+  return candidate;
+};
+
+const generateDefaultPassword = (base: string) => {
+  const sanitizedBase = sanitizeString(base) || 'clave';
+  let password = `${sanitizedBase}123`;
+  if (password.length < 6) {
+    password = password.padEnd(6, '1');
+  }
+  return password;
+};
+
 const PERMISOS_DISPONIBLES = [
   { id: 'ver_reportes', label: 'Ver Reportes', roles: ['admin', 'supervisor', 'planner', 'jefe_taller'] },
   { id: 'crear_ot', label: 'Crear OT', roles: ['admin', 'planner', 'supervisor'] },
@@ -159,6 +303,87 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
     }
   };
 
+  const ensureCargoForRole = (role: string) => {
+    const cargoName = ROLE_TO_CARGO_NAME[role];
+    if (!cargoName) return null;
+
+    let cargosLocal = readLocal('apt_cargos', []);
+    if (!Array.isArray(cargosLocal)) {
+      cargosLocal = [];
+    }
+
+    let cargo = cargosLocal.find(
+      (c: any) => (c.nombre_cargo || '').toLowerCase() === cargoName.toLowerCase()
+    );
+
+    if (!cargo) {
+      cargo = {
+        id_cargo: Date.now(),
+        nombre_cargo: cargoName,
+        descripcion_cargo: `Perfil automático para ${cargoName}`,
+        created_at: new Date().toISOString(),
+      };
+      cargosLocal = [...cargosLocal, cargo];
+      writeLocal('apt_cargos', cargosLocal);
+    }
+
+    return cargo;
+  };
+
+  const ensureProfileForUser = (usuario: any, empleado?: any | null) => {
+    if (!usuario) return null;
+
+    let perfilesLocal = readLocal('apt_perfiles_usuario', []);
+    if (!Array.isArray(perfilesLocal)) {
+      perfilesLocal = [];
+    }
+
+    const baseProfile = ROLE_PROFILES[usuario.rol] || ROLE_PROFILES.default;
+    const nombreMostrado = empleado
+      ? `${empleado.nombre || ''} ${empleado.apellido_paterno || ''}`.trim() ||
+        capitalizeFirst(usuario.usuario || '')
+      : capitalizeFirst(usuario.usuario || '');
+
+    let perfil = perfilesLocal.find((p: any) => p.usuario_id === usuario.id_usuario);
+    const perfilBaseData = {
+      usuario_id: usuario.id_usuario,
+      rol: usuario.rol,
+      titulo: baseProfile.titulo,
+      nombre_mostrado: nombreMostrado,
+      landing_page: baseProfile.landing,
+      modulos: baseProfile.modulos,
+      widgets: baseProfile.widgets,
+      actualizado_en: new Date().toISOString(),
+    };
+
+    if (!perfil) {
+      perfil = {
+        id_perfil: Date.now(),
+        ...perfilBaseData,
+        creado_en: new Date().toISOString(),
+      };
+      perfilesLocal = [...perfilesLocal, perfil];
+      writeLocal('apt_perfiles_usuario', perfilesLocal);
+    } else {
+      const requiereActualizacion =
+        perfil.rol !== perfilBaseData.rol ||
+        perfil.nombre_mostrado !== perfilBaseData.nombre_mostrado ||
+        perfil.landing_page !== perfilBaseData.landing_page ||
+        JSON.stringify(perfil.modulos) !== JSON.stringify(perfilBaseData.modulos) ||
+        JSON.stringify(perfil.widgets) !== JSON.stringify(perfilBaseData.widgets);
+
+      if (requiereActualizacion) {
+        perfil = { ...perfil, ...perfilBaseData };
+        perfilesLocal = perfilesLocal.map((p: any) =>
+          p.usuario_id === usuario.id_usuario ? perfil : p
+        );
+        writeLocal('apt_perfiles_usuario', perfilesLocal);
+      }
+    }
+
+    return perfil;
+  };
+
   useEffect(() => {
     if (activeSection === 'usuarios') {
       loadUsuarios();
@@ -223,6 +448,7 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
       // Combinar usuarios con información de empleados
       const usuariosEnriquecidos = usuariosLocal.map((u: any) => {
         const empleado = empleadosLocal.find((e: any) => e.usuario_id === u.id_usuario);
+        const perfil = ensureProfileForUser(u, empleado);
         
         console.log(`Usuario ${u.usuario}:`, {
           empleado_encontrado: !!empleado,
@@ -238,6 +464,7 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
           telefono: empleado?.telefono_empleado || 'N/A',
           correo: empleado?.correo_empleado || 'N/A',
           empleado: empleado,
+          perfil,
         };
       });
       
@@ -871,29 +1098,49 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
 
   const handleGuardarNuevoUsuario = () => {
     console.log('🔵 Intentando crear usuario:', nuevoUsuarioForm);
-    
-    if (!nuevoUsuarioForm.usuario || !nuevoUsuarioForm.clave) {
-      alert('Por favor completa usuario y contraseña');
-      return;
-    }
 
     const usuariosActuales = readLocal('apt_usuarios', []);
     console.log('📋 Usuarios actuales:', usuariosActuales);
-    
-    // Verificar si el usuario ya existe
-    const usuarioExiste = usuariosActuales.some((u: any) => u.usuario === nuevoUsuarioForm.usuario);
-    if (usuarioExiste) {
+    const existingUsernames = usuariosActuales.map(
+      (u: any) => (u.usuario || '').toLowerCase()
+    );
+
+    const primaryToken =
+      extractPrimaryToken(nuevoUsuarioForm.nombre_completo) ||
+      nuevoUsuarioForm.usuario ||
+      nuevoUsuarioForm.rol ||
+      'usuario';
+
+    let username = (nuevoUsuarioForm.usuario || '').trim();
+    let usernameGenerado = false;
+    if (!username) {
+      username = generateUniqueUsername(primaryToken, existingUsernames);
+      username = capitalizeFirst(username);
+      usernameGenerado = true;
+    } else {
+      username = username.trim();
+    }
+
+    if (existingUsernames.includes(username.toLowerCase())) {
       alert('❌ Este nombre de usuario ya existe. Por favor elige otro.');
       return;
     }
 
+    let password = (nuevoUsuarioForm.clave || '').trim();
+    let passwordGenerada = false;
+    if (!password) {
+      password = generateDefaultPassword(primaryToken || username);
+      passwordGenerada = true;
+    }
+
+    const usuarioId = Date.now();
     const nuevoUsuario = {
-      id_usuario: Date.now(),
-      usuario: nuevoUsuarioForm.usuario,
-      clave: nuevoUsuarioForm.clave,
+      id_usuario: usuarioId,
+      usuario: username,
+      clave: password,
       rol: nuevoUsuarioForm.rol,
       estado_usuario: true,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
 
     const usuariosActualizados = [...usuariosActuales, nuevoUsuario];
@@ -901,28 +1148,45 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
     console.log('✅ Nuevo usuario guardado:', nuevoUsuario);
     console.log('📦 Usuarios actualizados:', usuariosActualizados);
 
-    // Crear empleado asociado (siempre, no solo si tiene nombre completo)
     const empleados = readLocal('apt_empleados', []);
-    const [nombre, ...apellidos] = nuevoUsuarioForm.nombre_completo 
-      ? nuevoUsuarioForm.nombre_completo.trim().split(' ')
-      : [nuevoUsuarioForm.usuario];
-    
+    const [nombre, ...apellidos] = nuevoUsuarioForm.nombre_completo
+      ? nuevoUsuarioForm.nombre_completo.trim().split(/\s+/).filter(Boolean)
+      : [capitalizeFirst(username)];
+
+    const cargoAsociado = ensureCargoForRole(nuevoUsuarioForm.rol);
+
     const nuevoEmpleado = {
-      id_empleado: Date.now() + 1,
-      nombre: nombre || '',
+      id_empleado: usuarioId + 1,
+      nombre: nombre || capitalizeFirst(username),
       apellido_paterno: apellidos[0] || '',
       apellido_materno: apellidos[1] || '',
-      rut_empleado: nuevoUsuarioForm.rut || '',
-      correo_empleado: nuevoUsuarioForm.correo || '',
-      telefono_empleado: nuevoUsuarioForm.telefono || '',
-      cargo_id: 1,
+      rut_empleado: nuevoUsuarioForm.rut || 'N/A',
+      correo_empleado: nuevoUsuarioForm.correo || 'N/A',
+      telefono_empleado: nuevoUsuarioForm.telefono || 'N/A',
+      cargo_id: cargoAsociado?.id_cargo || null,
+      cargo_nombre: cargoAsociado?.nombre_cargo || null,
+      rol: nuevoUsuarioForm.rol,
       usuario_id: nuevoUsuario.id_usuario,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     };
     writeLocal('apt_empleados', [...empleados, nuevoEmpleado]);
     console.log('✅ Empleado asociado creado:', nuevoEmpleado);
 
-    alert('✅ Usuario creado exitosamente');
+    const perfilCreado = ensureProfileForUser(nuevoUsuario, nuevoEmpleado);
+    if (perfilCreado) {
+      console.log('✅ Perfil asociado creado:', perfilCreado);
+    }
+
+    const mensajes: string[] = ['✅ Usuario creado exitosamente.'];
+    mensajes.push(`Credenciales: ${username} / ${password}`);
+    if (cargoAsociado) {
+      mensajes.push(`Perfil asignado: ${cargoAsociado.nombre_cargo}`);
+    }
+    if (usernameGenerado || passwordGenerada) {
+      mensajes.push('💡 Credenciales generadas automáticamente. Puedes modificarlas luego desde la administración.');
+    }
+
+    alert(mensajes.join('\n'));
     setModalNuevoUsuario(false);
     setNuevoUsuarioForm({
       usuario: '',
@@ -931,7 +1195,7 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
       nombre_completo: '',
       rut: '',
       telefono: '',
-      correo: ''
+      correo: '',
     });
     
     // Recargar todas las vistas para que se actualicen
@@ -1071,6 +1335,37 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
     }
   };
 
+  const handleEliminarUsuario = (usuario: any) => {
+    const usernameLower = (usuario?.usuario || '').toLowerCase();
+    if (usuario.rol === 'admin' && usernameLower === 'admin') {
+      alert('⚠️ No puedes eliminar la cuenta principal de administrador.');
+      return;
+    }
+
+    if (!confirm(`¿Eliminar permanentemente al usuario ${usuario.usuario}?`)) {
+      return;
+    }
+
+    const usuariosLocal = readLocal('apt_usuarios', []);
+    const usuariosActualizados = usuariosLocal.filter((u: any) => u.id_usuario !== usuario.id_usuario);
+    writeLocal('apt_usuarios', usuariosActualizados);
+
+    const empleadosLocal = readLocal('apt_empleados', []);
+    const empleadosActualizados = empleadosLocal.filter((e: any) => e.usuario_id !== usuario.id_usuario);
+    writeLocal('apt_empleados', empleadosActualizados);
+
+    const perfilesLocal = readLocal('apt_perfiles_usuario', []);
+    if (Array.isArray(perfilesLocal)) {
+      const perfilesActualizados = perfilesLocal.filter((p: any) => p.usuario_id !== usuario.id_usuario);
+      writeLocal('apt_perfiles_usuario', perfilesActualizados);
+    }
+
+    loadUsuarios();
+    loadChoferes();
+    loadUsuariosAuditoria();
+    alert('🗑️ Usuario eliminado correctamente');
+  };
+
   if (loading) {
     return <div className="text-center py-8">Cargando...</div>;
   }
@@ -1183,6 +1478,15 @@ export default function AdminDashboard({ activeSection = 'usuarios' }: AdminDash
                                   <CheckCircle size={16} />
                                 </button>
                               )}
+                            {(usuario.rol !== 'admin' || (usuario.usuario || '').toLowerCase() !== 'admin') && (
+                              <button
+                                onClick={() => handleEliminarUsuario(usuario)}
+                                className="text-red-600 hover:text-red-800"
+                                title="Eliminar usuario"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
                             </div>
                           </td>
                         </tr>

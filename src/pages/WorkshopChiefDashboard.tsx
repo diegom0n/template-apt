@@ -19,7 +19,8 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
   const { user } = useAuth();
   const [diagnosticosDelDia, setDiagnosticosDelDia] = useState<any[]>([]);
   const [diagnosticosProximos, setDiagnosticosProximos] = useState<any[]>([]);
-  const [agendaTab, setAgendaTab] = useState<'hoy' | 'proximos'>('hoy');
+  const [diagnosticosVencidos, setDiagnosticosVencidos] = useState<any[]>([]);
+  const [agendaTab, setAgendaTab] = useState<'hoy' | 'proximos' | 'vencidos'>('hoy');
   const [ordenesDiagnostico, setOrdenesDiagnostico] = useState<any[]>([]);
   const [checklistTab, setChecklistTab] = useState<'pendientes' | 'realizados'>('pendientes');
   const [loading, setLoading] = useState(true);
@@ -30,12 +31,17 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
   const [selectedDiagnostico, setSelectedDiagnostico] = useState<any | null>(null);
   const [mechanics, setMechanics] = useState<any[]>([]);
   const [checklists, setChecklists] = useState<any[]>([]);
+  const [reparacionTab, setReparacionTab] = useState<'en_reparacion' | 'esperando_repuestos' | 'en_pruebas' | 'finalizada'>('en_reparacion');
+  const [selectedProgressLog, setSelectedProgressLog] = useState<any | null>(null);
+  const [progressDetailModal, setProgressDetailModal] = useState(false);
+  const [cierreTab, setCierreTab] = useState<'pendientes' | 'finalizadas'>('pendientes');
   
   const [formData, setFormData] = useState({
     prioridad_ot: 'normal',
     checklist_id: '',
     mecanico_apoyo_ids: [] as number[],
     confirmado_ingreso: false,
+    estado_ot: 'en_reparacion',
   });
 
   const hasEnv = Boolean(import.meta.env.VITE_SUPABASE_URL) && Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY);
@@ -64,10 +70,32 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
     }
   }, [activeSection]);
 
+  useEffect(() => {
+    const handleLocalUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent<{ key?: string }>;
+      const key = customEvent.detail?.key;
+      if (!key || key === 'apt_ordenes_trabajo' || key === 'apt_progresos_mecanico') {
+        loadData();
+      }
+    };
+
+    window.addEventListener('apt-local-update', handleLocalUpdate as EventListener);
+    return () => window.removeEventListener('apt-local-update', handleLocalUpdate as EventListener);
+  }, []);
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const hoy = new Date().toISOString().split('T')[0];
+      const hoyDate = new Date();
+      hoyDate.setHours(0, 0, 0, 0);
+      const hoyMs = hoyDate.getTime();
+      const normalizarFechaLocal = (fecha: string | null | undefined) => {
+        if (!fecha) return null;
+        const date = new Date(fecha);
+        if (isNaN(date.getTime())) return null;
+        const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        return local.getTime();
+      };
       
       // Cargar órdenes en estado "En diagnóstico programado" o "en curso" relacionadas con diagnóstico
       let ordenesData: any[] = [];
@@ -75,6 +103,10 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
       const ordenes = readLocal('apt_ordenes_trabajo', []);
       const historialAutorizados = readLocal('apt_historial_autorizados', []);
       const empleados = readLocal('apt_empleados', []);
+      const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
+      let ordenesActualizadas = [...ordenes];
+      let debeActualizarOrdenes = false;
+      const ordenesActualizadasIds: number[] = [];
       
       // Filtrar órdenes de diagnóstico (incluyendo las que están en curso o en reparación si tienen solicitud de diagnóstico)
       const ordenesDiagnosticoFiltered = ordenes.filter((o: any) => {
@@ -82,7 +114,10 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
           solicitudes.some((s: any) => s.orden_trabajo_id === o.id_orden_trabajo);
         return o.estado_ot === 'en_diagnostico_programado' || 
           (o.estado_ot === 'en curso' && tieneSolicitud) ||
-          (o.estado_ot === 'en_reparacion' && tieneSolicitud);
+          (o.estado_ot === 'en_reparacion' && tieneSolicitud) ||
+          (o.estado_ot === 'esperando_repuestos' && tieneSolicitud) ||
+          (o.estado_ot === 'en_pruebas' && tieneSolicitud) ||
+          (o.estado_ot === 'finalizada' && tieneSolicitud);
       });
       
       // Enriquecer órdenes con información de solicitudes
@@ -93,6 +128,11 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
         );
         
         const empleado = empleados.find((e: any) => e.id_empleado === orden.empleado_id);
+        
+        const choferNombre = solicitud?.nombre_operador ||
+          solicitud?.nombre_chofer ||
+          solicitud?.chofer_nombre ||
+          (empleado ? `${empleado.nombre} ${empleado.apellido_paterno}` : null);
         
         // Verificar si el vehículo ya ingresó (buscando en historial de autorizados y registros de ingreso)
         const patenteNormalizada = solicitud?.patente_vehiculo?.toUpperCase();
@@ -109,22 +149,86 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
         );
         
         const yaIngreso = !!ingresoRegistrado || !!ingresoRegistradoDirecto || orden.confirmado_ingreso;
+
+        const checklistExistente = checklistsGuardados.find((c: any) => 
+          c.orden_trabajo_id === orden.id_orden_trabajo
+        );
+
+        let prioridadFinal = orden.prioridad_ot || null;
+        let estadoFinal = orden.estado_ot;
+        let checklistIdFinal = orden.checklist_id || null;
+
+        if (checklistExistente && checklistExistente.clasificacion_prioridad) {
+          estadoFinal = normalizeMechanicStatus(orden.estado_ot);
+          prioridadFinal = checklistExistente.clasificacion_prioridad || prioridadFinal;
+          checklistIdFinal = checklistExistente.id;
+
+          const idx = ordenesActualizadas.findIndex((o: any) => o.id_orden_trabajo === orden.id_orden_trabajo);
+          if (idx !== -1) {
+            const ordenLocal = ordenesActualizadas[idx];
+            if (
+              ordenLocal.estado_ot !== estadoFinal ||
+              ordenLocal.prioridad_ot !== prioridadFinal ||
+              ordenLocal.checklist_id !== checklistIdFinal
+            ) {
+              ordenesActualizadas[idx] = {
+                ...ordenLocal,
+                estado_ot: estadoFinal,
+                prioridad_ot: prioridadFinal,
+                checklist_id: checklistIdFinal,
+              };
+              debeActualizarOrdenes = true;
+              if (!ordenesActualizadasIds.includes(ordenLocal.id_orden_trabajo)) {
+                ordenesActualizadasIds.push(ordenLocal.id_orden_trabajo);
+              }
+            }
+          }
+        } else {
+          estadoFinal = normalizeMechanicStatus(orden.estado_ot);
+        }
         
         return {
           ...orden,
+          estado_ot: estadoFinal,
           solicitud: solicitud,
-          empleado_nombre: empleado ? `${empleado.nombre} ${empleado.apellido_paterno}` : 'N/A',
+          empleado_nombre: choferNombre || 'N/A',
           patente_vehiculo: solicitud?.patente_vehiculo || 'N/A',
           tipo_problema: solicitud?.tipo_problema || 'Diagnóstico',
           fecha_confirmada: solicitud?.fecha_confirmada || orden.fecha_inicio_ot,
           bloque_horario: solicitud?.bloque_horario_confirmado || solicitud?.bloque_horario || 'N/A',
           ya_ingreso: yaIngreso,
           ingreso_hora: ingresoRegistrado?.hora_busqueda || ingresoRegistradoDirecto?.hora || null,
-          prioridad_ot: orden.prioridad_ot || null,
-          checklist_id: orden.checklist_id || null,
+          prioridad_ot: prioridadFinal,
+          checklist_id: checklistIdFinal,
           mecanico_apoyo_ids: orden.mecanico_apoyo_ids || [],
         };
       });
+      
+      if (debeActualizarOrdenes) {
+        writeLocal('apt_ordenes_trabajo', ordenesActualizadas);
+        if (hasEnv) {
+          try {
+            if (ordenesActualizadasIds.length > 0) {
+              await Promise.all(
+                ordenesActualizadasIds.map((ordenId) => {
+                  const ordenLocal = ordenesActualizadas.find((o: any) => o.id_orden_trabajo === ordenId);
+                  if (!ordenLocal) return Promise.resolve();
+                  return supabase
+                    .from('orden_trabajo')
+                    .update({
+                      estado_ot: ordenLocal.estado_ot,
+                      prioridad_ot: ordenLocal.prioridad_ot,
+                      checklist_id: ordenLocal.checklist_id,
+                    })
+                    .eq('id_orden_trabajo', ordenId);
+                })
+              );
+            }
+          } catch (error) {
+            console.error('Error sincronizando órdenes actualizadas:', error);
+          }
+        }
+      }
       
       // Ordenar por orden de llegada (más recientes primero)
       const ordenesOrdenadas = ordenesEnriquecidas.sort((a: any, b: any) => {
@@ -137,36 +241,39 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
       
       // Filtrar diagnósticos para hoy (usando las ordenadas)
       const diagnosticosHoy = ordenesOrdenadas.filter((o: any) => {
-        const fechaConfirmada = o.fecha_confirmada || o.fecha_inicio_ot;
-        const fechaConfirmadaNormalizada = fechaConfirmada 
-          ? new Date(fechaConfirmada).toISOString().split('T')[0] 
-          : null;
-        return fechaConfirmadaNormalizada === hoy;
+        const fechaMs = normalizarFechaLocal(o.fecha_confirmada || o.fecha_inicio_ot);
+        return fechaMs !== null && fechaMs === hoyMs;
       });
       
       // Filtrar diagnósticos próximos (fechas futuras, usando las ordenadas)
       const diagnosticosFuturos = ordenesOrdenadas.filter((o: any) => {
-        const fechaConfirmada = o.fecha_confirmada || o.fecha_inicio_ot;
-        const fechaConfirmadaNormalizada = fechaConfirmada 
-          ? new Date(fechaConfirmada).toISOString().split('T')[0] 
-          : null;
-        return fechaConfirmadaNormalizada && fechaConfirmadaNormalizada > hoy;
+        const fechaMs = normalizarFechaLocal(o.fecha_confirmada || o.fecha_inicio_ot);
+        return fechaMs !== null && fechaMs > hoyMs;
       }).sort((a: any, b: any) => {
         // Ordenar por fecha más cercana primero
-        const fechaA = new Date(a.fecha_confirmada || a.fecha_inicio_ot).getTime();
-        const fechaB = new Date(b.fecha_confirmada || b.fecha_inicio_ot).getTime();
+        const fechaA = normalizarFechaLocal(a.fecha_confirmada || a.fecha_inicio_ot) ?? 0;
+        const fechaB = normalizarFechaLocal(b.fecha_confirmada || b.fecha_inicio_ot) ?? 0;
+        return fechaA - fechaB;
+      });
+      
+      const diagnosticosPasados = ordenesOrdenadas.filter((o: any) => {
+        const fechaMs = normalizarFechaLocal(o.fecha_confirmada || o.fecha_inicio_ot);
+        return fechaMs !== null && fechaMs < hoyMs;
+      }).sort((a: any, b: any) => {
+        const fechaA = normalizarFechaLocal(a.fecha_confirmada || a.fecha_inicio_ot) ?? 0;
+        const fechaB = normalizarFechaLocal(b.fecha_confirmada || b.fecha_inicio_ot) ?? 0;
         return fechaA - fechaB;
       });
       
       setDiagnosticosDelDia(diagnosticosHoy);
       setDiagnosticosProximos(diagnosticosFuturos);
+      setDiagnosticosVencidos(diagnosticosPasados);
       
       // Cargar mecánicos (empleados con cargo de mecánico)
       // Por ahora, cargar todos los empleados como mecánicos disponibles
       setMechanics(empleados);
       
       // Cargar checklists guardados (desde localStorage)
-      const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
       setChecklists(checklistsGuardados);
       
     } catch (error) {
@@ -195,6 +302,7 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
       checklist_id: checklistExistente ? checklistExistente.id.toString() : (orden.checklist_id || ''),
       mecanico_apoyo_ids: orden.mecanico_apoyo_ids || [],
       confirmado_ingreso: orden.ya_ingreso || false,
+      estado_ot: orden.estado_ot || 'en_reparacion',
     });
     setModalOpen(true);
   };
@@ -231,9 +339,7 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
               .update({
                 prioridad_ot: formData.prioridad_ot,
                 checklist_id: formData.checklist_id || null,
-                estado_ot: formData.confirmado_ingreso && selectedOT.estado_ot === 'en_diagnostico_programado'
-                  ? 'en curso'
-                  : selectedOT.estado_ot,
+                estado_ot: normalizeMechanicStatus(formData.estado_ot || selectedOT.estado_ot),
               })
               .eq('id_orden_trabajo', selectedOT.id_orden_trabajo);
           } catch (error) {
@@ -374,6 +480,115 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
     }
   };
 
+  const normalizeMechanicStatus = (estado: string | undefined) => {
+    if (!estado) return 'en_reparacion';
+    const normalized = estado.toLowerCase();
+    if (normalized.includes('repuesto')) return 'esperando_repuestos';
+    if (normalized.includes('prueba')) return 'en_pruebas';
+    if (normalized.includes('finaliza')) return 'finalizada';
+    return 'en_reparacion';
+  };
+
+  const selectedDataState = (ordenId: number) => {
+    try {
+      const ordenesLocal = readLocal('apt_ordenes_trabajo', []);
+      const found = Array.isArray(ordenesLocal)
+        ? ordenesLocal.find((o: any) => o.id_orden_trabajo === ordenId)
+        : null;
+      return found?.estado_ot || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const readProgressSummary = (ordenId: number) => {
+    try {
+      const progresos = readLocal('apt_progresos_mecanico', []);
+      if (!Array.isArray(progresos)) return null;
+      const latest = progresos
+        .filter((p: any) => p.orden_trabajo_id === ordenId)
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.fecha_registro).getTime() - new Date(a.fecha_registro).getTime()
+        )[0];
+      return latest || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const getFinalizadaOrders = () => {
+    const ordenes = readLocal('apt_ordenes_trabajo', []);
+    const solicitudes = readLocal('apt_solicitudes_diagnostico', []);
+    const empleados = readLocal('apt_empleados', []);
+    const vehiculos = readLocal('apt_vehiculos', []);
+    if (!Array.isArray(ordenes)) return [];
+
+    return ordenes
+      .filter((o: any) => o.estado_ot === 'finalizada')
+      .map((o: any) => {
+        const solicitud = Array.isArray(solicitudes)
+          ? solicitudes.find(
+              (s: any) =>
+                s.orden_trabajo_id === o.id_orden_trabajo ||
+                s.id_solicitud_diagnostico === o.solicitud_diagnostico_id
+            )
+          : null;
+        const vehiculo = Array.isArray(vehiculos)
+          ? vehiculos.find((v: any) => v.id_vehiculo === o.vehiculo_id)
+          : null;
+        const empleado = Array.isArray(empleados)
+          ? empleados.find((e: any) => e.id_empleado === o.empleado_id)
+          : null;
+
+        const choferNombre =
+          o.chofer ||
+          solicitud?.nombre_operador ||
+          solicitud?.nombre_chofer ||
+          solicitud?.chofer_nombre ||
+          (empleado ? `${empleado.nombre} ${empleado.apellido_paterno}`.trim() : null);
+        const problema =
+          o.tipo_problema ||
+          solicitud?.tipo_problema ||
+          solicitud?.descripcion_problema ||
+          o.descripcion_ot ||
+          'N/A';
+        const patente =
+          o.patente_vehiculo ||
+          solicitud?.patente_vehiculo ||
+          vehiculo?.patente_vehiculo ||
+          'N/A';
+
+        return {
+          ...o,
+          tipo_problema: problema,
+          chofer: choferNombre || 'N/A',
+          patente_vehiculo: patente,
+          detalle_reparacion: o.detalle_reparacion || solicitud?.detalle_reparacion || '',
+        };
+      });
+  };
+
+  const marcarCierreTecnico = (ordenId: number) => {
+    const ordenes = readLocal('apt_ordenes_trabajo', []);
+    if (!Array.isArray(ordenes)) return;
+    const index = ordenes.findIndex((o: any) => o.id_orden_trabajo === ordenId);
+    if (index === -1) return;
+
+    ordenes[index] = {
+      ...ordenes[index],
+      estado_cierre: 'cerrada',
+      fecha_cierre_tecnico: new Date().toISOString(),
+    };
+    writeLocal('apt_ordenes_trabajo', ordenes);
+    window.dispatchEvent(
+      new CustomEvent('apt-local-update', {
+        detail: { key: 'apt_ordenes_trabajo' },
+      })
+    );
+    loadData();
+  };
+
   if (loading) {
     return <div className="text-center py-8">Cargando...</div>;
   }
@@ -415,6 +630,21 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
               {diagnosticosProximos.length > 0 && (
                 <span className="ml-2 px-2 py-0.5 bg-gray-100 text-gray-800 text-xs rounded-full">
                   {diagnosticosProximos.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setAgendaTab('vencidos')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                agendaTab === 'vencidos'
+                  ? 'text-red-600 border-b-2 border-red-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              ⏰ Vencidos
+              {diagnosticosVencidos.length > 0 && (
+                <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded-full">
+                  {diagnosticosVencidos.length}
                 </span>
               )}
             </button>
@@ -583,6 +813,93 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
                 </div>
               </div>
             ))}
+          </div>
+        ))}
+        
+        {/* Contenido de "Vencidos" */}
+        {agendaTab === 'vencidos' && (diagnosticosVencidos.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <AlertCircle className="mx-auto text-red-400 mb-4" size={48} />
+            <p>No se registran diagnósticos vencidos. ¡Todo al día!</p>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {diagnosticosVencidos.map((diagnostico) => {
+              const fechaReferencia = diagnostico.fecha_confirmada || diagnostico.fecha_inicio_ot;
+              const fechaObj = fechaReferencia ? new Date(fechaReferencia) : null;
+              const hoyLocal = new Date();
+              hoyLocal.setHours(0, 0, 0, 0);
+              const fechaLocal = fechaObj ? new Date(fechaObj.getFullYear(), fechaObj.getMonth(), fechaObj.getDate()) : null;
+              const diffMs = fechaLocal ? hoyLocal.getTime() - fechaLocal.getTime() : 0;
+              const diasRetraso = fechaLocal ? Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24))) : 0;
+
+              return (
+                <div
+                  key={diagnostico.id_orden_trabajo}
+                  className="p-4 rounded-lg border-l-4 bg-red-50 border-red-500"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <Truck className="text-gray-600" size={20} />
+                        <span className="font-semibold text-gray-900 text-lg">
+                          {diagnostico.patente_vehiculo}
+                        </span>
+                        <span className="px-2 py-1 bg-red-600 text-white text-xs rounded-full">
+                          Vencido
+                        </span>
+                        {diagnostico.ya_ingreso && (
+                          <span className="px-2 py-1 bg-green-600 text-white text-xs rounded-full">
+                            ✓ Ingresó
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="text-red-500" size={16} />
+                          <span className="text-red-700 font-semibold">
+                            {fechaObj ? formatDate(fechaReferencia) : 'Fecha no disponible'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock className="text-gray-400" size={16} />
+                          <span className="text-gray-700">
+                            <strong>Horario:</strong> {diagnostico.bloque_horario}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <User className="text-gray-400" size={16} />
+                          <span className="text-gray-700">
+                            <strong>Chofer:</strong> {diagnostico.empleado_nombre}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="text-red-500" size={16} />
+                          <span className="text-red-700">
+                            <strong>Retraso:</strong> {diasRetraso} {diasRetraso === 1 ? 'día' : 'días'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 md:col-span-2">
+                          <AlertCircle className="text-gray-400" size={16} />
+                          <span className="text-gray-700">
+                            <strong>Problema:</strong> {diagnostico.tipo_problema}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleViewDiagnostico(diagnostico)}
+                      className="shrink-0 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                    >
+                      <FileText size={18} />
+                      Ver Info
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ))}
         </div>
@@ -866,32 +1183,74 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
 
       {/* Contenido de OT en Reparación */}
       {activeSection === 'reparacion' && (() => {
-        const ordenesEnReparacion = ordenesDiagnostico.filter((o: any) => o.estado_ot === 'en_reparacion');
         const progresos = readLocal('apt_progresos_mecanico', []);
-        
+        const ordenesPorEstado = {
+          en_reparacion: ordenesDiagnostico.filter((o: any) => o.estado_ot === 'en_reparacion'),
+          esperando_repuestos: ordenesDiagnostico.filter((o: any) => o.estado_ot === 'esperando_repuestos'),
+          en_pruebas: ordenesDiagnostico.filter((o: any) => o.estado_ot === 'en_pruebas'),
+          finalizada: ordenesDiagnostico.filter((o: any) => o.estado_ot === 'finalizada'),
+        } as Record<typeof reparacionTab, any[]>;
+        const visibles = ordenesPorEstado[reparacionTab];
+
+        const tabLabel: Record<typeof reparacionTab, string> = {
+          en_reparacion: 'En reparación',
+          esperando_repuestos: 'Esperando repuestos',
+          en_pruebas: 'En pruebas',
+          finalizada: 'Finalizadas',
+        };
+
         return (
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">OT en Reparación</h1>
-            <p className="text-gray-600 mb-6">Ver avance técnico (tareas terminadas / pendientes, observaciones).</p>
-            
-            {ordenesEnReparacion.length === 0 ? (
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-1">OT en Reparación</h1>
+                <p className="text-gray-600">
+                  Ver avance técnico (tareas terminadas / pendientes, observaciones).
+                </p>
+              </div>
+              <div className="flex flex-wrap bg-gray-100 rounded-lg p-1 w-fit">
+                {(['en_reparacion', 'esperando_repuestos', 'en_pruebas', 'finalizada'] as const).map((key) => (
+                  <button
+                    key={key}
+                    onClick={() => setReparacionTab(key)}
+                    className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                      reparacionTab === key ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {tabLabel[key]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {visibles.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <Settings className="mx-auto text-gray-400 mb-4" size={48} />
-                <p>No hay órdenes de trabajo en reparación actualmente.</p>
+                <p>No hay órdenes con estado "{tabLabel[reparacionTab].toLowerCase()}".</p>
               </div>
             ) : (
               <div className="grid gap-4">
-                {ordenesEnReparacion.map((orden) => {
-                  const progresosOT = progresos.filter((p: any) => p.orden_trabajo_id === orden.id_orden_trabajo);
-                  const checklistsGuardados = readLocal('apt_checklists_diagnostico', []);
-                  const checklistExistente = checklistsGuardados.find((c: any) => 
-                    c.orden_trabajo_id === orden.id_orden_trabajo
+                {visibles.map((orden) => {
+                  const progresosOT = progresos.filter(
+                    (p: any) => p.orden_trabajo_id === orden.id_orden_trabajo
                   );
-                  
+                  const resumenProgreso = readProgressSummary(orden.id_orden_trabajo);
+                  const estadoActual = normalizeMechanicStatus(
+                    orden.estado_ot || resumenProgreso?.estado_ot || selectedDataState(orden.id_orden_trabajo)
+                  );
+
                   return (
                     <div
                       key={orden.id_orden_trabajo}
-                      className="p-4 rounded-lg border-l-4 bg-blue-50 border-blue-500"
+                      className={`p-4 rounded-lg border-l-4 ${
+                        estadoActual === 'finalizada'
+                          ? 'bg-green-50 border-green-500'
+                          : estadoActual === 'esperando_repuestos'
+                          ? 'bg-yellow-50 border-yellow-500'
+                          : estadoActual === 'en_pruebas'
+                          ? 'bg-purple-50 border-purple-500'
+                          : 'bg-blue-50 border-blue-500'
+                      }`}
                     >
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
@@ -900,18 +1259,30 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
                             <span className="font-semibold text-gray-900 text-xl">
                               {orden.patente_vehiculo}
                             </span>
-                            <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                              🔧 En Reparación
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              estadoActual === 'finalizada'
+                                ? 'bg-green-100 text-green-800'
+                                : estadoActual === 'esperando_repuestos'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : estadoActual === 'en_pruebas'
+                                ? 'bg-purple-100 text-purple-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {tabLabel[estadoActual as typeof reparacionTab] || estadoActual}
                             </span>
                             {orden.prioridad_ot && (
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                PRIORIDADES_OT.find(p => p.value === orden.prioridad_ot)?.color || 'bg-gray-100 text-gray-800'
-                              }`}>
-                                {PRIORIDADES_OT.find(p => p.value === orden.prioridad_ot)?.label || orden.prioridad_ot}
+                              <span
+                                className={`px-2 py-1 text-xs rounded-full ${
+                                  PRIORIDADES_OT.find((p) => p.value === orden.prioridad_ot)?.color ||
+                                  'bg-gray-100 text-gray-800'
+                                }`}
+                              >
+                                {PRIORIDADES_OT.find((p) => p.value === orden.prioridad_ot)?.label ||
+                                  orden.prioridad_ot}
                               </span>
                             )}
                           </div>
-                          
+
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                             <div className="flex items-center gap-2">
                               <User className="text-gray-400" size={16} />
@@ -925,27 +1296,26 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
                                 <strong>Problema:</strong> {orden.tipo_problema}
                               </span>
                             </div>
-                            {checklistExistente && (
-                              <div className="flex items-center gap-2">
-                                <ClipboardList className="text-green-600" size={16} />
-                                <span className="text-green-700">
-                                  <strong>Diagnóstico:</strong> {checklistExistente.clasificacion_prioridad || 'N/A'}
-                                </span>
-                              </div>
-                            )}
-                            {orden.mecanico_apoyo_ids && orden.mecanico_apoyo_ids.length > 0 && (
-                              <div className="flex items-center gap-2">
-                                <Settings className="text-blue-600" size={16} />
-                                <span className="text-blue-700">
-                                  <strong>Mecánicos:</strong> {orden.mecanico_apoyo_ids.length} asignado(s)
+                            {orden.detalle_reparacion && (
+                              <div className="col-span-full flex items-center gap-2">
+                                <FileText className="text-blue-500" size={16} />
+                                <span className="text-blue-800 text-sm">
+                                  <strong>Detalle de reparación:</strong> {orden.detalle_reparacion}
                                 </span>
                               </div>
                             )}
                           </div>
                         </div>
+
+                        <button
+                          onClick={() => handleOpenOT(orden)}
+                          className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        >
+                          <FileText size={18} />
+                          Ver Detalles
+                        </button>
                       </div>
-                      
-                      {/* Progresos Registrados */}
+
                       {progresosOT.length > 0 ? (
                         <div className="mt-4 border-t pt-4">
                           <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -954,22 +1324,37 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
                           </h4>
                           <div className="space-y-3">
                             {progresosOT.map((progreso: any, index: number) => (
-                              <div key={index} className="bg-white p-3 rounded border border-gray-200">
+                              <button
+                                key={index}
+                                onClick={() => {
+                                  setSelectedProgressLog({
+                                    ...progreso,
+                                    patente: orden.patente_vehiculo,
+                                    chofer: orden.empleado_nombre,
+                                    estado_ot: estadoActual,
+                                  });
+                                  setProgressDetailModal(true);
+                                }}
+                                className="w-full text-left bg-white p-3 rounded border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                              >
                                 <div className="flex items-start justify-between mb-2">
                                   <div className="flex items-center gap-2">
                                     <CheckCircle className="text-green-600" size={16} />
                                     <span className="text-sm font-medium text-gray-900">
-                                      {new Date(progreso.fecha_registro || progreso.created_at).toLocaleDateString('es-ES', {
-                                        day: '2-digit',
-                                        month: 'short',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })}
+                                      {new Date(progreso.fecha_registro || progreso.created_at).toLocaleDateString(
+                                        'es-ES',
+                                        {
+                                          day: '2-digit',
+                                          month: 'short',
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                        }
+                                      )}
                                     </span>
                                   </div>
-                                  {progreso.hora_inicio && progreso.hora_fin && (
+                                  {(progreso.hora_inicio || progreso.hora_fin) && (
                                     <span className="text-xs text-gray-500">
-                                      ⏱️ {progreso.hora_inicio} - {progreso.hora_fin}
+                                      ⏱️ {progreso.hora_inicio || '--:--'} - {progreso.hora_fin || '--:--'}
                                     </span>
                                   )}
                                 </div>
@@ -981,33 +1366,22 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
                                     <strong>Observaciones:</strong> {progreso.observaciones}
                                   </p>
                                 )}
-                                {progreso.fotos && progreso.fotos.length > 0 && (
-                                  <div className="mt-2 flex gap-2">
-                                    {progreso.fotos.slice(0, 3).map((foto: string, fIndex: number) => (
-                                      <img
-                                        key={fIndex}
-                                        src={foto}
-                                        alt={`Foto ${fIndex + 1}`}
-                                        className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80"
-                                        onClick={() => window.open(foto, '_blank')}
-                                      />
-                                    ))}
-                                    {progreso.fotos.length > 3 && (
-                                      <span className="text-xs text-gray-500 self-center">
-                                        +{progreso.fotos.length - 3} más
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
+                              </button>
                             ))}
                           </div>
                         </div>
                       ) : (
                         <div className="mt-4 border-t pt-4 text-center py-4 bg-yellow-50 rounded">
                           <p className="text-sm text-yellow-800">
-                            ⚠️ Aún no se han registrado avances para esta OT
+                            ⚠️ {resumenProgreso
+                              ? `Último avance registrado el ${new Date(resumenProgreso.fecha_registro).toLocaleString('es-CL')}`
+                              : 'Aún no se han registrado avances para esta OT'}
                           </p>
+                          {resumenProgreso && resumenProgreso.descripcion_trabajo && (
+                            <p className="text-xs text-yellow-700 mt-1">
+                              {resumenProgreso.descripcion_trabajo}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1020,20 +1394,109 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
       })()}
 
       {/* Contenido de Cierre Técnico de OT */}
-      {activeSection === 'cierre' && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Cierre Técnico de OT</h1>
-          <p className="text-gray-600 mb-6">Validación final, prueba de ruta y marcar vehículo como "Listo para entrega".</p>
-          
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
-            <CheckCircle className="mx-auto text-blue-400 mb-4" size={48} />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Funcionalidad en desarrollo</h3>
-            <p className="text-gray-600">
-              Aquí podrás realizar el cierre técnico de las OT finalizadas.
-            </p>
+      {activeSection === 'cierre' && (() => {
+        const todas = getFinalizadaOrders();
+        const finalizadas = todas.filter((o: any) => o.estado_cierre !== 'cerrada');
+        const cerradas = todas.filter((o: any) => o.estado_cierre === 'cerrada');
+
+        const renderLista = (ordenes: any[], vacio: string) => {
+          if (ordenes.length === 0) {
+            return (
+              <div className="text-center py-10 text-gray-500">
+                <Activity className="mx-auto text-gray-300 mb-4" size={52} />
+                <p>{vacio}</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-4">
+              {ordenes.map((orden) => {
+                const resumen = readProgressSummary(orden.id_orden_trabajo);
+                const estadoCerrada = orden.estado_cierre === 'cerrada';
+                return (
+                  <div key={orden.id_orden_trabajo} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <CheckCircle className={estadoCerrada ? 'text-gray-500' : 'text-green-600'} size={20} />
+                          <span className="font-semibold text-lg text-gray-900">{orden.patente_vehiculo || 'N/A'}</span>
+                          <span className={`px-2 py-1 text-xs rounded ${estadoCerrada ? 'bg-gray-200 text-gray-600' : 'bg-green-100 text-green-700'}`}>
+                            {estadoCerrada ? 'Cierre técnico completado' : 'Finalizada'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-gray-700">
+                          <div><strong>Problema:</strong> {orden.tipo_problema || 'N/A'}</div>
+                          <div><strong>Chofer:</strong> {orden.chofer || orden.empleado_nombre || 'N/A'}</div>
+                          <div><strong>Últ. avance:</strong> {resumen ? new Date(resumen.fecha_registro).toLocaleString('es-CL') : '—'}</div>
+                          <div className="md:col-span-2"><strong>Detalle reparación:</strong> {orden.detalle_reparacion || resumen?.descripcion_trabajo || 'Sin detalle'}</div>
+                        </div>
+                      </div>
+
+                      {!estadoCerrada ? (
+                        <div className="flex flex-col gap-2">
+                          <button
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                            onClick={() => {
+                              setSelectedOT(orden);
+                              setModalOpen(true);
+                            }}
+                          >
+                            Revisar detalle
+                          </button>
+                          <button
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                            onClick={() => marcarCierreTecnico(orden.id_orden_trabajo)}
+                          >
+                            Cerrar OT
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-end text-xs text-gray-500">
+                          <span>✅ Cerrada el {new Date(orden.fecha_cierre_tecnico || orden.fecha_actualizacion || new Date()).toLocaleString('es-CL')}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        };
+
+        return (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-1">Cierre Técnico de OT</h1>
+                <p className="text-gray-600">Revisa las órdenes finalizadas por el mecánico y completa el cierre técnico.</p>
+              </div>
+              <div className="flex bg-gray-100 rounded-lg p-1 w-fit">
+                <button
+                  onClick={() => setCierreTab('pendientes')}
+                  className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                    cierreTab === 'pendientes' ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Pendientes de cierre
+                </button>
+                <button
+                  onClick={() => setCierreTab('finalizadas')}
+                  className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                    cierreTab === 'finalizadas' ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Cerradas
+                </button>
+              </div>
+            </div>
+
+            {cierreTab === 'pendientes'
+              ? renderLista(finalizadas, 'No hay OT finalizadas pendientes de cierre.')
+              : renderLista(cerradas, 'Aún no tienes OT cerradas.')} 
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Contenido de Carga del Taller */}
       {activeSection === 'carga' && (
@@ -1394,6 +1857,63 @@ export default function WorkshopChiefDashboard({ activeSection = 'agenda' }: Wor
                   setSelectedDiagnostico(null);
                 }}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={progressDetailModal}
+        onClose={() => {
+          setProgressDetailModal(false);
+          setSelectedProgressLog(null);
+        }}
+        title={`Detalle de avance ${selectedProgressLog?.patente ? `· ${selectedProgressLog.patente}` : ''}`}
+      >
+        {selectedProgressLog && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-900">
+              <p><strong>OT:</strong> #{selectedProgressLog.orden_trabajo_id}</p>
+              <p><strong>Chofer:</strong> {selectedProgressLog.chofer || 'N/A'}</p>
+              <p><strong>Fecha registro:</strong> {new Date(selectedProgressLog.fecha_registro).toLocaleString('es-CL')}</p>
+            </div>
+            <div className="space-y-2 text-sm text-gray-800">
+              <p><strong>Trabajo realizado:</strong> {selectedProgressLog.descripcion_trabajo || 'N/A'}</p>
+              {selectedProgressLog.observaciones && (
+                <p><strong>Observaciones:</strong> {selectedProgressLog.observaciones}</p>
+              )}
+              {selectedProgressLog.hora_inicio && selectedProgressLog.hora_fin && (
+                <p>
+                  <strong>Horario:</strong> {selectedProgressLog.hora_inicio} - {selectedProgressLog.hora_fin}
+                </p>
+              )}
+            </div>
+            {Array.isArray(selectedProgressLog.fotos) && selectedProgressLog.fotos.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Fotografías</h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {selectedProgressLog.fotos.map((foto: string, idx: number) => (
+                    <img
+                      key={idx}
+                      src={foto}
+                      alt={`Foto avance ${idx + 1}`}
+                      className="w-full h-24 object-cover rounded border border-gray-200 cursor-pointer hover:opacity-80"
+                      onClick={() => window.open(foto, '_blank')}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <button
+                onClick={() => {
+                  setProgressDetailModal(false);
+                  setSelectedProgressLog(null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 Cerrar
               </button>
